@@ -1,0 +1,110 @@
+server:
+  port: ${PORT:${SERVER_PORT:8080}}
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: port
+
+  threads:
+    virtual:
+      enabled: true
+
+  config:
+    import: optional:file:.env[.properties]
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/port}
+    username: ${DB_USERNAME:port_admin}
+    password: ${DB_PASSWORD:1234}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+        default_batch_fetch_size: 100
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:placeholder}
+            client-secret: ${GOOGLE_CLIENT_SECRET:placeholder}
+            scope:
+              - email
+              - profile
+          kakao:
+            client-id: ${KAKAO_CLIENT_ID:placeholder}
+            client-secret: ${KAKAO_CLIENT_SECRET:placeholder}
+            client-authentication-method: client_secret_post
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - profile_nickname
+              - account_email
+        provider:
+          kakao:
+            authorization-uri: https://kauth.kakao.com/oauth/authorize
+            token-uri: https://kauth.kakao.com/oauth/token
+            user-info-uri: https://kapi.kakao.com/v2/user/me
+            user-name-attribute: id
+
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:placeholder}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-4o-mini}
+          temperature: 0.3
+
+jwt:
+  secret: ${JWT_SECRET:change-this-secret-key-change-this-secret-key-change-this-secret-key}
+  access-expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:1800000}
+  refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000}
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  cookie-domain: ${COOKIE_DOMAIN:localhost}
+  ai:
+    free-monthly-limit: ${AI_FREE_MONTHLY_LIMIT:3}
+    pro-monthly-limit: ${AI_PRO_MONTHLY_LIMIT:30}
+  billing:
+    pro-price-krw: ${PRO_PRICE_KRW:14900}
+  integrations:
+    github-client-id: ${GITHUB_CLIENT_ID:placeholder}
+    github-client-secret: ${GITHUB_CLIENT_SECRET:placeholder}
+    github-redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/integrations/github/callback}
+    notion-client-id: ${NOTION_CLIENT_ID:placeholder}
+    notion-client-secret: ${NOTION_CLIENT_SECRET:placeholder}
+    notion-redirect-uri: ${NOTION_REDIRECT_URI:http://localhost:8080/api/integrations/notion/callback}
+    tistory-client-id: ${TISTORY_CLIENT_ID:placeholder}
+    tistory-client-secret: ${TISTORY_CLIENT_SECRET:placeholder}
+    tistory-redirect-uri: ${TISTORY_REDIRECT_URI:http://localhost:8080/api/integrations/tistory/callback}
+    linkedin-client-id: ${LINKEDIN_CLIENT_ID:placeholder}
+    linkedin-client-secret: ${LINKEDIN_CLIENT_SECRET:placeholder}
+    linkedin-redirect-uri: ${LINKEDIN_REDIRECT_URI:http://localhost:8080/api/integrations/linkedin/callback}
+  openai:
+    timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:60}
+    max-retries: ${OPENAI_MAX_RETRIES:3}
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+  api-key: ${CLOUDINARY_API_KEY:}
+  api-secret: ${CLOUDINARY_API_SECRET:}
+  folder: ${CLOUDINARY_FOLDER:port}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
