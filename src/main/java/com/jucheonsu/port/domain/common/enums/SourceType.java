@@ -3,7 +3,7 @@ package com.jucheonsu.port.domain.common.enums;
 public enum SourceType {
     DIRECT,
     GITHUB,
-    LINKEDIN,
+    FIGMA,
     TWITTER,
     BEHANCE,
     DRIBBBLE,

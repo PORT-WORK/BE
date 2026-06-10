@@ -52,26 +52,18 @@ public class IntegrationServiceImpl implements IntegrationService {
     @Value("${app.integrations.notion-redirect-uri}")
     private String notionRedirectUri;
 
-    @Value("${app.integrations.tistory-client-id}")
-    private String tistoryClientId;
-    @Value("${app.integrations.tistory-client-secret}")
-    private String tistoryClientSecret;
-    @Value("${app.integrations.tistory-redirect-uri}")
-    private String tistoryRedirectUri;
-
-    @Value("${app.integrations.linkedin-client-id}")
-    private String linkedinClientId;
-    @Value("${app.integrations.linkedin-client-secret}")
-    private String linkedinClientSecret;
-    @Value("${app.integrations.linkedin-redirect-uri}")
-    private String linkedinRedirectUri;
+    @Value("${app.integrations.figma-client-id}")
+    private String figmaClientId;
+    @Value("${app.integrations.figma-client-secret}")
+    private String figmaClientSecret;
+    @Value("${app.integrations.figma-redirect-uri}")
+    private String figmaRedirectUri;
 
     public String getAuthorizationUrl(ProviderType provider) {
         return switch (provider) {
             case GITHUB -> buildAuthorizeUrl("https://github.com/login/oauth/authorize", githubClientId, githubRedirectUri, "read:user repo user:email");
             case NOTION -> buildAuthorizeUrl("https://api.notion.com/v1/oauth/authorize", notionClientId, notionRedirectUri, "read:content insert:content");
-            case TISTORY -> buildAuthorizeUrl("https://www.tistory.com/oauth/authorize", tistoryClientId, tistoryRedirectUri, "read");
-            case LINKEDIN -> buildAuthorizeUrl("https://www.linkedin.com/oauth/v2/authorization", linkedinClientId, linkedinRedirectUri, "openid profile email");
+            case FIGMA -> buildAuthorizeUrl("https://www.figma.com/oauth", figmaClientId, figmaRedirectUri, "file_read");
             default -> throw new CustomException(ErrorCode.INVALID_REQUEST);
         };
     }
@@ -125,8 +117,7 @@ public class IntegrationServiceImpl implements IntegrationService {
         return switch (provider) {
             case GITHUB -> previewGithub(connection);
             case NOTION -> previewNotion(connection, resourceId);
-            case TISTORY -> previewTistory(connection, resourceId);
-            case LINKEDIN -> previewLinkedIn(connection);
+            case FIGMA -> previewFigma(connection);
             default -> throw new CustomException(ErrorCode.INVALID_REQUEST);
         };
     }
@@ -166,8 +157,7 @@ public class IntegrationServiceImpl implements IntegrationService {
         return switch (provider) {
             case GITHUB -> exchangeGithub(code);
             case NOTION -> exchangeNotion(code);
-            case TISTORY -> exchangeTistory(code);
-            case LINKEDIN -> exchangeLinkedIn(code);
+            case FIGMA -> exchangeFigma(code);
             default -> throw new CustomException(ErrorCode.INVALID_REQUEST);
         };
     }
@@ -211,35 +201,16 @@ public class IntegrationServiceImpl implements IntegrationService {
         return new TokenBundle(accessToken, refreshToken, null, expiresIn == null ? null : LocalDateTime.now().plusSeconds(expiresIn));
     }
 
-    private TokenBundle exchangeTistory(String code) {
-        String response = restClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .scheme("https")
-                        .host("www.tistory.com")
-                        .path("/oauth/access_token")
-                        .queryParam("client_id", tistoryClientId)
-                        .queryParam("client_secret", tistoryClientSecret)
-                        .queryParam("redirect_uri", tistoryRedirectUri)
-                        .queryParam("code", code)
-                        .queryParam("grant_type", "authorization_code")
-                        .build())
-                .retrieve()
-                .body(String.class);
-
-        Map<String, String> parsed = parseQueryLikeResponse(response);
-        return new TokenBundle(parsed.get("access_token"), parsed.get("refresh_token"), parsed.get("blogName"), null);
-    }
-
-    private TokenBundle exchangeLinkedIn(String code) {
+    private TokenBundle exchangeFigma(String code) {
         Map<String, Object> body = restClient.post()
-                .uri("https://www.linkedin.com/oauth/v2/accessToken")
+                .uri("https://www.figma.com/api/oauth/token")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(formData(Map.of(
                         "grant_type", "authorization_code",
                         "code", code,
-                        "redirect_uri", linkedinRedirectUri,
-                        "client_id", linkedinClientId,
-                        "client_secret", linkedinClientSecret
+                        "redirect_uri", figmaRedirectUri,
+                        "client_id", figmaClientId,
+                        "client_secret", figmaClientSecret
                 )))
                 .retrieve()
                 .body(Map.class);
@@ -286,35 +257,16 @@ public class IntegrationServiceImpl implements IntegrationService {
         );
     }
 
-    private IntegrationPreviewResponse previewTistory(OAuthConnection connection, String resourceId) {
-        String blogName = resourceId != null && !resourceId.isBlank() ? resourceId : connection.getWorkspaceUrl();
-        if (blogName == null || blogName.isBlank()) {
-            throw new CustomException(ErrorCode.INVALID_REQUEST);
-        }
-        Map<String, Object> posts = tistoryPosts(connection.getAccessToken(), blogName);
+    private IntegrationPreviewResponse previewFigma(OAuthConnection connection) {
         return new IntegrationPreviewResponse(
-                ProviderType.TISTORY,
-                blogName,
-                "Tistory blog",
-                "https://" + blogName + ".tistory.com",
-                "Latest posts",
+                ProviderType.FIGMA,
+                "Figma workspace",
+                "Design files and components",
+                connection.getWorkspaceUrl(),
+                "Figma profile preview",
                 null,
-                List.of("tistory", "blog", "marketing"),
-                posts
-        );
-    }
-
-    private IntegrationPreviewResponse previewLinkedIn(OAuthConnection connection) {
-        Map<String, Object> me = linkedinApi(connection.getAccessToken(), "/v2/me");
-        return new IntegrationPreviewResponse(
-                ProviderType.LINKEDIN,
-                Objects.toString(me.get("localizedFirstName"), "LinkedIn"),
-                Objects.toString(me.get("localizedHeadline"), null),
-                "https://www.linkedin.com/in/",
-                "LinkedIn profile preview",
-                null,
-                List.of("linkedin", "career", "profile"),
-                Map.of("profile", me)
+                List.of("figma", "design", "system"),
+                Map.of("workspaceUrl", connection.getWorkspaceUrl())
         );
     }
 
@@ -349,33 +301,6 @@ public class IntegrationServiceImpl implements IntegrationService {
                 .retrieve()
                 .body(Map.class);
         return body == null ? Map.of() : body;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> linkedinApi(String token, String path) {
-        Map<String, Object> body = restClient.get()
-                .uri("https://api.linkedin.com" + path)
-                .header("Authorization", "Bearer " + token)
-                .header("X-Restli-Protocol-Version", "2.0.0")
-                .retrieve()
-                .body(Map.class);
-        return body == null ? Map.of() : body;
-    }
-
-    private Map<String, Object> tistoryPosts(String token, String blogName) {
-        String response = restClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .scheme("https")
-                        .host("www.tistory.com")
-                        .path("/apis/post/list")
-                        .queryParam("access_token", token)
-                        .queryParam("output", "json")
-                        .queryParam("blogName", blogName)
-                        .queryParam("page", 1)
-                        .build())
-                .retrieve()
-                .body(String.class);
-        return Map.of("response", response == null ? "" : response);
     }
 
     private Map<String, Object> extractNotionTitle(String pageId, String token) {

@@ -65,8 +65,9 @@ public class User extends BaseEntity {
 
     private LocalDateTime deletedAt;
 
-    public void updateProfile(String name, String bio, String location, Integer experienceYears, Boolean isEmailPublic) {
+    public void updateProfile(String name, String profileImageUrl, String bio, String location, Integer experienceYears, Boolean isEmailPublic) {
         this.name = name;
+        this.profileImageUrl = profileImageUrl;
         this.bio = bio;
         this.location = location;
         this.experienceYears = experienceYears;

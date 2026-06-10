@@ -90,12 +90,9 @@ app:
     notion-client-id: ${NOTION_CLIENT_ID:placeholder}
     notion-client-secret: ${NOTION_CLIENT_SECRET:placeholder}
     notion-redirect-uri: ${NOTION_REDIRECT_URI:http://localhost:8080/api/integrations/notion/callback}
-    tistory-client-id: ${TISTORY_CLIENT_ID:placeholder}
-    tistory-client-secret: ${TISTORY_CLIENT_SECRET:placeholder}
-    tistory-redirect-uri: ${TISTORY_REDIRECT_URI:http://localhost:8080/api/integrations/tistory/callback}
-    linkedin-client-id: ${LINKEDIN_CLIENT_ID:placeholder}
-    linkedin-client-secret: ${LINKEDIN_CLIENT_SECRET:placeholder}
-    linkedin-redirect-uri: ${LINKEDIN_REDIRECT_URI:http://localhost:8080/api/integrations/linkedin/callback}
+    figma-client-id: ${FIGMA_CLIENT_ID:placeholder}
+    figma-client-secret: ${FIGMA_CLIENT_SECRET:placeholder}
+    figma-redirect-uri: ${FIGMA_REDIRECT_URI:http://localhost:8080/api/integrations/figma/callback}
   openai:
     timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:60}
     max-retries: ${OPENAI_MAX_RETRIES:3}

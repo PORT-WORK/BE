@@ -37,6 +37,7 @@ public class UserServiceImpl implements UserService {
         User user = getUser(userId);
         user.updateProfile(
                 request.name(),
+                request.profileImageUrl(),
                 request.bio(),
                 request.location(),
                 request.experienceYears(),
