@@ -89,13 +89,13 @@ app:
   integrations:
     github-client-id: ${GITHUB_CLIENT_ID:placeholder}
     github-client-secret: ${GITHUB_CLIENT_SECRET:placeholder}
-    github-redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/integrations/github/callback}
+    github-redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:5173/integrations/github/callback}
     notion-client-id: ${NOTION_CLIENT_ID:placeholder}
     notion-client-secret: ${NOTION_CLIENT_SECRET:placeholder}
-    notion-redirect-uri: ${NOTION_REDIRECT_URI:http://localhost:8080/api/integrations/notion/callback}
+    notion-redirect-uri: ${NOTION_REDIRECT_URI:http://localhost:5173/integrations/notion/callback}
     figma-client-id: ${FIGMA_CLIENT_ID:placeholder}
     figma-client-secret: ${FIGMA_CLIENT_SECRET:placeholder}
-    figma-redirect-uri: ${FIGMA_REDIRECT_URI:http://localhost:8080/api/integrations/figma/callback}
+    figma-redirect-uri: ${FIGMA_REDIRECT_URI:http://localhost:5173/integrations/figma/callback}
   openai:
     timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:60}
     max-retries: ${OPENAI_MAX_RETRIES:3}
