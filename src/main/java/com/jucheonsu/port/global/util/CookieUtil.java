@@ -9,10 +9,14 @@ public final class CookieUtil {
     }
 
     public static void addHttpOnlyCookie(HttpServletResponse response, String name, String value, long maxAgeSeconds) {
+        addHttpOnlyCookie(response, name, value, maxAgeSeconds, false);
+    }
+
+    public static void addHttpOnlyCookie(HttpServletResponse response, String name, String value, long maxAgeSeconds, boolean secure) {
         ResponseCookie cookie = ResponseCookie.from(name, value)
                 .httpOnly(true)
-                .secure(false)
-                .sameSite("Lax")
+                .secure(secure)
+                .sameSite(secure ? "None" : "Lax")
                 .path("/")
                 .maxAge(maxAgeSeconds)
                 .build();
@@ -20,10 +24,14 @@ public final class CookieUtil {
     }
 
     public static void expireCookie(HttpServletResponse response, String name) {
+        expireCookie(response, name, false);
+    }
+
+    public static void expireCookie(HttpServletResponse response, String name, boolean secure) {
         ResponseCookie cookie = ResponseCookie.from(name, "")
                 .httpOnly(true)
-                .secure(false)
-                .sameSite("Lax")
+                .secure(secure)
+                .sameSite(secure ? "None" : "Lax")
                 .path("/")
                 .maxAge(0)
                 .build();

@@ -30,6 +30,9 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
     @Value("${app.frontend-url}")
     private String frontendUrl;
 
+    @Value("${app.cookie-secure:true}")
+    private boolean cookieSecure;
+
     @Value("${jwt.access-expiration-ms}")
     private long accessExpirationMs;
 
@@ -42,11 +45,13 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         OAuth2User oauthUser = (OAuth2User) authentication.getPrincipal();
         String email = extractEmail(oauthUser);
         String name = extractName(oauthUser);
+        String profileImageUrl = extractProfileImage(oauthUser);
 
         User user = userRepository.findByEmailAndDeletedAtIsNull(email)
                 .orElseGet(() -> userRepository.save(User.builder()
                         .email(email)
                         .name(name)
+                        .profileImageUrl(profileImageUrl)
                         .language(LanguageType.ko)
                         .build()));
 
@@ -54,8 +59,8 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         String refreshToken = jwtTokenProvider.createRefreshToken(user.getId(), user.getEmail());
         refreshTokenRedisRepository.save(user.getId(), refreshToken);
 
-        CookieUtil.addHttpOnlyCookie(response, "ACCESS_TOKEN", accessToken, accessExpirationMs / 1000);
-        CookieUtil.addHttpOnlyCookie(response, "REFRESH_TOKEN", refreshToken, refreshExpirationMs / 1000);
+        CookieUtil.addHttpOnlyCookie(response, "ACCESS_TOKEN", accessToken, accessExpirationMs / 1000, cookieSecure);
+        CookieUtil.addHttpOnlyCookie(response, "REFRESH_TOKEN", refreshToken, refreshExpirationMs / 1000, cookieSecure);
         response.sendRedirect(frontendUrl + "/oauth/success");
     }
 
@@ -81,5 +86,24 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
             return map.get("nickname").toString();
         }
         return "PORT User";
+    }
+
+    private String extractProfileImage(OAuth2User oauthUser) {
+        Object picture = oauthUser.getAttribute("picture");
+        if (picture != null) {
+            return picture.toString();
+        }
+        Object properties = oauthUser.getAttribute("properties");
+        if (properties instanceof Map<?, ?> map && map.get("profile_image") != null) {
+            return map.get("profile_image").toString();
+        }
+        Object kakaoAccount = oauthUser.getAttribute("kakao_account");
+        if (kakaoAccount instanceof Map<?, ?> account) {
+            Object profile = account.get("profile");
+            if (profile instanceof Map<?, ?> profileMap && profileMap.get("profile_image_url") != null) {
+                return profileMap.get("profile_image_url").toString();
+            }
+        }
+        return null;
     }
 }

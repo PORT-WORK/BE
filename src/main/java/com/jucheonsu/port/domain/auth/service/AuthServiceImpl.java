@@ -31,6 +31,9 @@ public class AuthServiceImpl implements AuthService {
     @Value("${jwt.refresh-expiration-ms}")
     private long refreshExpirationMs;
 
+    @Value("${app.cookie-secure:true}")
+    private boolean cookieSecure;
+
     public TokenResponse refresh(TokenRefreshRequest request, HttpServletResponse response) {
         String refreshToken = request.refreshToken();
         if (!jwtTokenProvider.isValid(refreshToken) || jwtTokenProvider.getTokenType(refreshToken) != JwtTokenType.REFRESH) {
@@ -51,8 +54,8 @@ public class AuthServiceImpl implements AuthService {
         String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getId(), user.getEmail());
         refreshTokenRedisRepository.save(userId, newRefreshToken);
 
-        CookieUtil.addHttpOnlyCookie(response, "ACCESS_TOKEN", newAccessToken, accessExpirationMs / 1000);
-        CookieUtil.addHttpOnlyCookie(response, "REFRESH_TOKEN", newRefreshToken, refreshExpirationMs / 1000);
+        CookieUtil.addHttpOnlyCookie(response, "ACCESS_TOKEN", newAccessToken, accessExpirationMs / 1000, cookieSecure);
+        CookieUtil.addHttpOnlyCookie(response, "REFRESH_TOKEN", newRefreshToken, refreshExpirationMs / 1000, cookieSecure);
 
         return new TokenResponse(newAccessToken, newRefreshToken);
     }
@@ -61,7 +64,7 @@ public class AuthServiceImpl implements AuthService {
         if (jwtTokenProvider.isValid(refreshToken)) {
             refreshTokenRedisRepository.delete(jwtTokenProvider.getUserId(refreshToken));
         }
-        CookieUtil.expireCookie(response, "ACCESS_TOKEN");
-        CookieUtil.expireCookie(response, "REFRESH_TOKEN");
+        CookieUtil.expireCookie(response, "ACCESS_TOKEN", cookieSecure);
+        CookieUtil.expireCookie(response, "REFRESH_TOKEN", cookieSecure);
     }
 }
