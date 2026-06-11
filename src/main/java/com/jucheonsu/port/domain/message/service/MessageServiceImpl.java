@@ -7,6 +7,7 @@ import com.jucheonsu.port.domain.message.entity.Message;
 import com.jucheonsu.port.domain.message.repository.MessageRepository;
 import com.jucheonsu.port.domain.notification.enums.NotificationType;
 import com.jucheonsu.port.domain.notification.service.NotificationService;
+import com.jucheonsu.port.domain.realtime.service.RealtimeEventService;
 import com.jucheonsu.port.domain.user.entity.User;
 import com.jucheonsu.port.domain.user.repository.UserRepository;
 import com.jucheonsu.port.global.exception.CustomException;
@@ -14,6 +15,8 @@ import com.jucheonsu.port.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 
@@ -25,6 +28,7 @@ public class MessageServiceImpl implements MessageService {
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final RealtimeEventService realtimeEventService;
 
     public List<MessageResponse> getInbox(Long userId) {
         return messageRepository.findAllByReceiverIdOrderByCreatedAtDesc(userId).stream()
@@ -51,15 +55,17 @@ public class MessageServiceImpl implements MessageService {
                 .content(request.content())
                 .build());
 
+        MessageResponse response = MessageConverter.toResponse(message);
         notificationService.create(
                 receiver.getId(),
                 NotificationType.MESSAGE,
-                sender.getName() + "님이 새 메시지를 보냈습니다.",
+                sender.getName() + "님이 메시지를 보냈습니다.",
                 request.content(),
                 "/messages/" + message.getId()
         );
 
-        return MessageConverter.toResponse(message);
+        afterCommit(() -> realtimeEventService.publishMessage(response));
+        return response;
     }
 
     @Transactional
@@ -68,5 +74,18 @@ public class MessageServiceImpl implements MessageService {
                 .orElseThrow(() -> new CustomException(ErrorCode.MESSAGE_NOT_FOUND));
         message.read();
         return MessageConverter.toResponse(message);
+    }
+
+    private void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+            return;
+        }
+        action.run();
     }
 }

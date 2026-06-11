@@ -5,6 +5,7 @@ import com.jucheonsu.port.domain.notification.dto.response.NotificationResponse;
 import com.jucheonsu.port.domain.notification.entity.Notification;
 import com.jucheonsu.port.domain.notification.enums.NotificationType;
 import com.jucheonsu.port.domain.notification.repository.NotificationRepository;
+import com.jucheonsu.port.domain.realtime.service.RealtimeEventService;
 import com.jucheonsu.port.domain.user.entity.User;
 import com.jucheonsu.port.domain.user.repository.UserRepository;
 import com.jucheonsu.port.global.exception.CustomException;
@@ -12,6 +13,8 @@ import com.jucheonsu.port.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 
@@ -22,6 +25,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
+    private final RealtimeEventService realtimeEventService;
 
     public List<NotificationResponse> getNotifications(Long userId) {
         return notificationRepository.findAllByUserIdOrderByCreatedAtDesc(userId).stream()
@@ -60,7 +64,9 @@ public class NotificationServiceImpl implements NotificationService {
                 .linkUrl(linkUrl)
                 .build());
 
-        return NotificationConverter.toResponse(notification);
+        NotificationResponse response = NotificationConverter.toResponse(notification);
+        afterCommit(() -> realtimeEventService.publishNotification(userId, response));
+        return response;
     }
 
     @Transactional
@@ -68,5 +74,18 @@ public class NotificationServiceImpl implements NotificationService {
         Notification notification = notificationRepository.findByIdAndUserId(notificationId, userId)
                 .orElseThrow(() -> new CustomException(ErrorCode.NOTIFICATION_NOT_FOUND));
         notificationRepository.delete(notification);
+    }
+
+    private void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+            return;
+        }
+        action.run();
     }
 }
