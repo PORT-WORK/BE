@@ -7,7 +7,12 @@ import com.jucheonsu.port.global.response.ApiResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -22,8 +27,12 @@ public class AuthController {
     }
 
     @DeleteMapping("/logout")
-    public ApiResponse<Void> logout(@RequestBody TokenRefreshRequest request, HttpServletResponse response) {
-        service.logout(request.refreshToken(), response);
+    public ApiResponse<Void> logout(
+            @RequestBody(required = false) TokenRefreshRequest request,
+            @CookieValue(value = "REFRESH_TOKEN", required = false) String refreshTokenCookie,
+            HttpServletResponse response
+    ) {
+        service.logout(request != null ? request.refreshToken() : refreshTokenCookie, response);
         return ApiResponse.ok();
     }
 }

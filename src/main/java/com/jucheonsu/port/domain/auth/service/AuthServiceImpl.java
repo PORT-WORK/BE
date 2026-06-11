@@ -61,7 +61,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     public void logout(String refreshToken, HttpServletResponse response) {
-        if (jwtTokenProvider.isValid(refreshToken)) {
+        if (refreshToken != null && jwtTokenProvider.isValid(refreshToken)) {
             refreshTokenRedisRepository.delete(jwtTokenProvider.getUserId(refreshToken));
         }
         CookieUtil.expireCookie(response, "ACCESS_TOKEN", cookieSecure);
