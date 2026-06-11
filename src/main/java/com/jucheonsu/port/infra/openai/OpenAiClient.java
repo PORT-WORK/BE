@@ -26,6 +26,13 @@ public class OpenAiClient {
         return complete(promptFactory.createPortfolioPptPrompt(sourceText));
     }
 
+    public String generateReview(String documentText) {
+        if (apiKey == null || apiKey.isBlank() || apiKey.contains("placeholder")) {
+            return documentText;
+        }
+        return complete(promptFactory.createReviewPrompt(documentText));
+    }
+
     public String generateChatReply(String userMessage) {
         String prompt = """
                 You are PORT AI, a helpful portfolio assistant.

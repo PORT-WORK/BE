@@ -1,15 +1,14 @@
 package com.jucheonsu.port.domain.portfolio.controller;
 
 import com.jucheonsu.port.domain.portfolio.dto.request.PptExportRequest;
-import com.jucheonsu.port.infra.openai.OpenAiClient;
 import com.jucheonsu.port.infra.ppt.PptExportService;
+import com.jucheonsu.port.infra.ppt.PptSlideBuilder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
 
@@ -19,16 +18,14 @@ import java.nio.charset.StandardCharsets;
 public class PortfolioExportController {
 
     private final PptExportService pptExportService;
-    private final OpenAiClient openAiClient;
+    private final PptSlideBuilder pptSlideBuilder;
 
     @GetMapping("/pptx")
     public ResponseEntity<byte[]> exportPptx(
             @PathVariable Long portfolioId,
             @RequestParam(required = false) String sourceText
     ) {
-        String layoutJson = StringUtils.hasText(sourceText)
-                ? openAiClient.generatePptLayout(sourceText)
-                : "{}";
+        String layoutJson = pptSlideBuilder.buildPresentationJson(portfolioId, sourceText);
         byte[] bytes = pptExportService.exportPortfolio(portfolioId, layoutJson);
 
         ContentDisposition disposition = ContentDisposition.attachment()
@@ -47,9 +44,7 @@ public class PortfolioExportController {
             @RequestBody(required = false) PptExportRequest request
     ) {
         String sourceText = request == null ? null : request.sourceText();
-        String layoutJson = StringUtils.hasText(sourceText)
-                ? openAiClient.generatePptLayout(sourceText)
-                : "{}";
+        String layoutJson = pptSlideBuilder.buildPresentationJson(portfolioId, sourceText);
         byte[] bytes = pptExportService.exportPortfolio(portfolioId, layoutJson);
 
         return ResponseEntity.ok()

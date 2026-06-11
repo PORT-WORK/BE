@@ -16,4 +16,16 @@ public class OpenAiPromptFactory {
                 %s
                 """.formatted(sourceText);
     }
+
+    public String createReviewPrompt(String documentText) {
+        return """
+                You are PORT's document reviewer.
+                Polish the text for clarity, consistency, and flow.
+                Do not invent facts, metrics, or achievements.
+                Return only the revised document text.
+
+                Input:
+                %s
+                """.formatted(documentText);
+    }
 }
