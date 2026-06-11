@@ -14,6 +14,8 @@ public record ProjectWritingSessionResponse(
         Map<String, String> sectionDrafts,
         Map<String, String> sectionStatuses,
         Map<String, Object> sourceSnapshot,
+        String selectedProvider,
+        List<String> selectedSourceIds,
         List<Long> selectedProjectIds,
         List<Long> selectedDocumentIds,
         String documentText,

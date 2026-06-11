@@ -1,9 +1,11 @@
 package com.jucheonsu.port.global.exception;
 
 import com.jucheonsu.port.global.response.ApiResponse;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -22,6 +24,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .badRequest()
                 .body(ApiResponse.error("요청 값 검증에 실패했습니다."));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotAcceptable(HttpMediaTypeNotAcceptableException e) {
+        return ResponseEntity
+                .status(406)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiResponse.error("JSON response is required."));
     }
 
     @ExceptionHandler(Exception.class)

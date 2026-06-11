@@ -4,11 +4,14 @@ import com.jucheonsu.port.domain.common.enums.ProviderType;
 import com.jucheonsu.port.domain.integration.dto.request.IntegrationConnectRequest;
 import com.jucheonsu.port.domain.integration.dto.request.IntegrationEmbedRequest;
 import com.jucheonsu.port.domain.integration.dto.response.IntegrationPreviewResponse;
+import com.jucheonsu.port.domain.integration.dto.response.IntegrationSourceItemResponse;
 import com.jucheonsu.port.domain.integration.service.IntegrationService;
 import com.jucheonsu.port.domain.user.dto.response.OAuthConnectionResponse;
 import com.jucheonsu.port.global.response.ApiResponse;
+import com.jucheonsu.port.global.security.principal.PrincipalDetails;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,7 +24,8 @@ public class IntegrationController {
     private final IntegrationService integrationService;
 
     @GetMapping
-    public ApiResponse<List<OAuthConnectionResponse>> getConnections(@RequestHeader("X-USER-ID") Long userId) {
+    public ApiResponse<List<OAuthConnectionResponse>> getConnections(@AuthenticationPrincipal PrincipalDetails principal) {
+        Long userId = principal.getUserId();
         return ApiResponse.ok(integrationService.getConnections(userId));
     }
 
@@ -32,34 +36,42 @@ public class IntegrationController {
 
     @PostMapping("/{provider}/callback")
     public ApiResponse<OAuthConnectionResponse> connect(
-            @RequestHeader("X-USER-ID") Long userId,
+            @AuthenticationPrincipal PrincipalDetails principal,
             @PathVariable ProviderType provider,
             @Valid @RequestBody IntegrationConnectRequest request
     ) {
-        return ApiResponse.ok(integrationService.connect(userId, provider, request.code(), request.workspaceUrl()));
+        return ApiResponse.ok(integrationService.connect(principal.getUserId(), provider, request.code(), request.workspaceUrl()));
     }
 
     @DeleteMapping("/{provider}")
-    public ApiResponse<Void> disconnect(@RequestHeader("X-USER-ID") Long userId, @PathVariable ProviderType provider) {
-        integrationService.disconnect(userId, provider);
+    public ApiResponse<Void> disconnect(@AuthenticationPrincipal PrincipalDetails principal, @PathVariable ProviderType provider) {
+        integrationService.disconnect(principal.getUserId(), provider);
         return ApiResponse.ok();
     }
 
     @GetMapping("/{provider}/preview")
     public ApiResponse<IntegrationPreviewResponse> preview(
-            @RequestHeader("X-USER-ID") Long userId,
+            @AuthenticationPrincipal PrincipalDetails principal,
             @PathVariable ProviderType provider,
             @RequestParam(required = false) String resourceId
     ) {
-        return ApiResponse.ok(integrationService.preview(userId, provider, resourceId));
+        return ApiResponse.ok(integrationService.preview(principal.getUserId(), provider, resourceId));
+    }
+
+    @GetMapping("/{provider}/sources")
+    public ApiResponse<List<IntegrationSourceItemResponse>> sources(
+            @AuthenticationPrincipal PrincipalDetails principal,
+            @PathVariable ProviderType provider
+    ) {
+        return ApiResponse.ok(integrationService.listSources(principal.getUserId(), provider));
     }
 
     @PostMapping("/{provider}/embed")
     public ApiResponse<Object> createEmbedBlock(
-            @RequestHeader("X-USER-ID") Long userId,
+            @AuthenticationPrincipal PrincipalDetails principal,
             @PathVariable ProviderType provider,
             @Valid @RequestBody IntegrationEmbedRequest request
     ) {
-        return ApiResponse.ok(integrationService.createEmbedBlock(userId, request.documentId(), provider, request.resourceId()));
+        return ApiResponse.ok(integrationService.createEmbedBlock(principal.getUserId(), request.documentId(), provider, request.resourceId()));
     }
 }

@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jucheonsu.port.domain.block.converter.BlockConverter;
 import com.jucheonsu.port.domain.block.repository.BlockRepository;
 import com.jucheonsu.port.domain.document.repository.ProjectDocumentRepository;
+import com.jucheonsu.port.domain.common.enums.ProviderType;
+import com.jucheonsu.port.domain.integration.dto.response.IntegrationSourceItemResponse;
+import com.jucheonsu.port.domain.integration.service.IntegrationService;
 import com.jucheonsu.port.domain.portfolio.entity.Portfolio;
 import com.jucheonsu.port.domain.project.dto.request.ProjectWritingSaveRequest;
 import com.jucheonsu.port.domain.project.dto.request.ProjectWritingSelectionRequest;
@@ -28,6 +31,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +43,7 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
     private final ProjectWritingSessionRepository sessionRepository;
     private final BlockRepository blockRepository;
     private final OpenAiClient openAiClient;
+    private final IntegrationService integrationService;
     private final PptSlideBuilder pptSlideBuilder;
     private final PptExportService pptExportService;
     private final ObjectMapper objectMapper;
@@ -58,14 +63,13 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
         }
 
         ProjectWritingSession session = getOrCreateSession(project);
-        Map<String, Object> snapshot = buildSnapshot(project.getPortfolio(), request.projectIds(), request.documentIds());
+        boolean externalMode = StringUtils.hasText(request.provider()) && request.sourceIds() != null && !request.sourceIds().isEmpty();
+        Map<String, Object> snapshot = externalMode
+                ? buildExternalSnapshot(project.getPortfolio(), request.provider(), request.sourceIds())
+                : buildSnapshot(project.getPortfolio(), request.projectIds(), request.documentIds());
         session.markSelected(
                 project.getRole(),
-                writeJson(Map.of(
-                        "portfolioId", request.portfolioId(),
-                        "projectIds", normalizeIds(request.projectIds()),
-                        "documentIds", normalizeIds(request.documentIds())
-                )),
+                writeJson(buildSelectedSourcesPayload(request)),
                 writeJson(snapshot)
         );
         return toResponse(session);
@@ -198,6 +202,47 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
         return snapshot;
     }
 
+    private Map<String, Object> buildExternalSnapshot(Portfolio portfolio, String provider, List<String> sourceIds) {
+        Long userId = portfolio.getUser().getId();
+        ProviderType providerType = parseProvider(provider);
+        List<IntegrationSourceItemResponse> sources = integrationService.listSources(userId, providerType);
+        List<String> targetIds = normalizeSourceIds(sourceIds);
+        List<Map<String, Object>> selected = sources.stream()
+                .filter(source -> targetIds.contains(source.resourceId()))
+                .map(source -> {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("provider", source.provider().name());
+                    map.put("resourceId", source.resourceId());
+                    map.put("kind", source.kind());
+                    map.put("title", source.title());
+                    map.put("subtitle", source.subtitle());
+                    map.put("summary", source.summary());
+                    map.put("url", source.url());
+                    map.put("imageUrl", source.imageUrl());
+                    map.put("tags", source.tags());
+                    map.put("raw", source.raw());
+                    return map;
+                })
+                .toList();
+
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("provider", providerType.name());
+        snapshot.put("portfolioId", portfolio.getId());
+        snapshot.put("portfolioTitle", portfolio.getTitle());
+        snapshot.put("sources", selected);
+        return snapshot;
+    }
+
+    private Map<String, Object> buildSelectedSourcesPayload(ProjectWritingSelectionRequest request) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("portfolioId", request.portfolioId());
+        payload.put("projectIds", normalizeIds(request.projectIds()));
+        payload.put("documentIds", normalizeIds(request.documentIds()));
+        payload.put("provider", request.provider());
+        payload.put("sourceIds", normalizeSourceIds(request.sourceIds()));
+        return payload;
+    }
+
     private String buildDocumentText(Map<String, String> sectionDrafts, String sourceSnapshotJson) {
         StringBuilder builder = new StringBuilder();
         if (!sectionDrafts.isEmpty()) {
@@ -208,10 +253,82 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
                 builder.append("## ").append(section).append('\n').append(text.trim()).append("\n\n");
             });
         }
+        String renderedSources = renderSourceSnapshot(sourceSnapshotJson);
+        if (StringUtils.hasText(renderedSources)) {
+            builder.append("## SOURCES\n").append(renderedSources).append("\n\n");
+        }
         if (!StringUtils.hasText(builder)) {
             builder.append("## SOURCES\n").append(firstNonBlank(sourceSnapshotJson, "(EMPTY)"));
         }
         return builder.toString().trim();
+    }
+
+    private String renderSourceSnapshot(String sourceSnapshotJson) {
+        Map<String, Object> snapshot = readObjectMap(sourceSnapshotJson);
+        if (snapshot.isEmpty()) {
+            return "";
+        }
+
+        Object sources = snapshot.get("sources");
+        if (sources instanceof List<?> list && !list.isEmpty()) {
+            List<String> lines = new ArrayList<>();
+            String provider = Objects.toString(snapshot.get("provider"), "");
+            if (StringUtils.hasText(provider)) {
+                lines.add("Provider: " + provider);
+            }
+            for (Object value : list) {
+                if (!(value instanceof Map<?, ?> map)) {
+                    continue;
+                }
+                String title = Objects.toString(map.get("title"), "");
+                String kind = Objects.toString(map.get("kind"), "");
+                String summary = Objects.toString(map.get("summary"), "");
+                String url = Objects.toString(map.get("url"), "");
+                List<String> tags = map.get("tags") instanceof List<?> tagList
+                        ? tagList.stream().map(item -> Objects.toString(item, "")).filter(item -> StringUtils.hasText(item)).toList()
+                        : List.of();
+                lines.add("- " + firstNonBlank(title, kind));
+                if (StringUtils.hasText(kind)) {
+                    lines.add("  Kind: " + kind);
+                }
+                if (StringUtils.hasText(summary)) {
+                    lines.add("  Summary: " + summary);
+                }
+                if (!tags.isEmpty()) {
+                    lines.add("  Tags: " + String.join(", ", tags));
+                }
+                if (StringUtils.hasText(url)) {
+                    lines.add("  Url: " + url);
+                }
+            }
+            return String.join("\n", lines);
+        }
+
+        Object projects = snapshot.get("projects");
+        if (projects instanceof List<?> list && !list.isEmpty()) {
+            List<String> lines = new ArrayList<>();
+            for (Object value : list) {
+                if (!(value instanceof Map<?, ?> project)) {
+                    continue;
+                }
+                String projectName = Objects.toString(project.get("name"), "");
+                lines.add("- " + projectName);
+                Object documents = project.get("documents");
+                if (documents instanceof List<?> documentList) {
+                    for (Object docValue : documentList) {
+                        if (!(docValue instanceof Map<?, ?> docMap)) {
+                            continue;
+                        }
+                        String title = Objects.toString(docMap.get("title"), "");
+                        String category = Objects.toString(docMap.get("category"), "");
+                        lines.add("  • " + firstNonBlank(title, category));
+                    }
+                }
+            }
+            return String.join("\n", lines);
+        }
+
+        return "";
     }
 
     private Integer completeRatio(Map<String, String> sectionDrafts, String sectionStatusJson) {
@@ -229,6 +346,21 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
 
     private List<Long> normalizeIds(List<Long> ids) {
         return ids == null ? List.of() : ids.stream().filter(id -> id != null && id > 0).distinct().toList();
+    }
+
+    private List<String> normalizeSourceIds(List<String> ids) {
+        return ids == null ? List.of() : ids.stream().filter(StringUtils::hasText).map(String::trim).distinct().toList();
+    }
+
+    private ProviderType parseProvider(String provider) {
+        if (!StringUtils.hasText(provider)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
+        try {
+            return ProviderType.valueOf(provider.trim().toUpperCase());
+        } catch (Exception e) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
     }
 
     private Map<String, String> readStringMap(String json) {
@@ -285,6 +417,7 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
     }
 
     private ProjectWritingSessionResponse toResponse(ProjectWritingSession session) {
+        Map<String, Object> selectedSources = readObjectMap(session.getSelectedSourcesJson());
         return new ProjectWritingSessionResponse(
                 session.getProject().getId(),
                 session.getProject().getPortfolio().getId(),
@@ -295,6 +428,8 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
                 readStringMap(session.getSectionDraftJson()),
                 readStringMap(session.getSectionStatusJson()),
                 readObjectMap(session.getSourceSnapshotJson()),
+                Objects.toString(selectedSources.get("provider"), null),
+                readStringList(selectedSources.get("sourceIds")),
                 readLongList(session.getSelectedSourcesJson(), "projectIds"),
                 readLongList(session.getSelectedSourcesJson(), "documentIds"),
                 session.getDocumentText(),
@@ -312,5 +447,15 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
             }
         }
         return "";
+    }
+
+    private List<String> readStringList(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .map(item -> Objects.toString(item, ""))
+                    .filter(item -> StringUtils.hasText(item))
+                    .toList();
+        }
+        return List.of();
     }
 }

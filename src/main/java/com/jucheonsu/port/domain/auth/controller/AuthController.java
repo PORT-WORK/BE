@@ -22,8 +22,13 @@ public class AuthController {
     private final AuthService service;
 
     @PostMapping("/refresh")
-    public ApiResponse<TokenResponse> refresh(@Valid @RequestBody TokenRefreshRequest request, HttpServletResponse response) {
-        return ApiResponse.ok(service.refresh(request, response));
+    public ApiResponse<TokenResponse> refresh(
+            @RequestBody(required = false) TokenRefreshRequest request,
+            @CookieValue(value = "REFRESH_TOKEN", required = false) String refreshTokenCookie,
+            HttpServletResponse response
+    ) {
+        String refreshToken = request != null ? request.refreshToken() : refreshTokenCookie;
+        return ApiResponse.ok(service.refresh(new TokenRefreshRequest(refreshToken), response));
     }
 
     @DeleteMapping("/logout")

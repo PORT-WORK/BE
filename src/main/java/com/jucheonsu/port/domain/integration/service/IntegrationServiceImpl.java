@@ -6,6 +6,7 @@ import com.jucheonsu.port.domain.block.service.BlockService;
 import com.jucheonsu.port.domain.common.enums.BlockType;
 import com.jucheonsu.port.domain.common.enums.ProviderType;
 import com.jucheonsu.port.domain.integration.dto.response.IntegrationPreviewResponse;
+import com.jucheonsu.port.domain.integration.dto.response.IntegrationSourceItemResponse;
 import com.jucheonsu.port.domain.notification.enums.NotificationType;
 import com.jucheonsu.port.domain.user.dto.response.OAuthConnectionResponse;
 import com.jucheonsu.port.domain.user.entity.OAuthConnection;
@@ -15,12 +16,16 @@ import com.jucheonsu.port.domain.user.repository.UserRepository;
 import com.jucheonsu.port.global.exception.CustomException;
 import com.jucheonsu.port.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -29,6 +34,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class IntegrationServiceImpl implements IntegrationService {
@@ -63,7 +69,7 @@ public class IntegrationServiceImpl implements IntegrationService {
         return switch (provider) {
             case GITHUB -> buildAuthorizeUrl("https://github.com/login/oauth/authorize", githubClientId, githubRedirectUri, "read:user repo user:email");
             case NOTION -> buildAuthorizeUrl("https://api.notion.com/v1/oauth/authorize", notionClientId, notionRedirectUri, "read:content insert:content");
-            case FIGMA -> buildAuthorizeUrl("https://www.figma.com/oauth", figmaClientId, figmaRedirectUri, "file_read");
+            case FIGMA -> buildAuthorizeUrl("https://www.figma.com/oauth", figmaClientId, figmaRedirectUri, "file_content:read");
             default -> throw new CustomException(ErrorCode.INVALID_REQUEST);
         };
     }
@@ -110,16 +116,30 @@ public class IntegrationServiceImpl implements IntegrationService {
                 .toList();
     }
 
-    public IntegrationPreviewResponse preview(Long userId, ProviderType provider, String resourceId) {
+    public List<IntegrationSourceItemResponse> listSources(Long userId, ProviderType provider) {
         OAuthConnection connection = connectionRepository.findByUserIdAndProvider(userId, provider)
                 .orElseThrow(() -> new CustomException(ErrorCode.OAUTH_CONNECTION_NOT_FOUND));
 
         return switch (provider) {
-            case GITHUB -> previewGithub(connection);
-            case NOTION -> previewNotion(connection, resourceId);
-            case FIGMA -> previewFigma(connection);
+            case GITHUB -> listGithubSources(connection);
+            case NOTION -> listNotionSources(connection);
+            case FIGMA -> listFigmaSources(connection);
             default -> throw new CustomException(ErrorCode.INVALID_REQUEST);
         };
+    }
+
+    public IntegrationPreviewResponse preview(Long userId, ProviderType provider, String resourceId) {
+        IntegrationSourceItemResponse item = findSourceItem(userId, provider, resourceId);
+        return new IntegrationPreviewResponse(
+                item.provider(),
+                item.title(),
+                item.subtitle(),
+                item.url(),
+                item.summary(),
+                item.imageUrl(),
+                item.tags(),
+                item.raw()
+        );
     }
 
     @Transactional
@@ -139,6 +159,271 @@ public class IntegrationServiceImpl implements IntegrationService {
         return block;
     }
 
+    private IntegrationSourceItemResponse findSourceItem(Long userId, ProviderType provider, String resourceId) {
+        List<IntegrationSourceItemResponse> items = listSources(userId, provider);
+        if (items.isEmpty()) {
+            throw new CustomException(ErrorCode.OAUTH_CONNECTION_NOT_FOUND);
+        }
+        if (resourceId == null || resourceId.isBlank()) {
+            return items.getFirst();
+        }
+        return items.stream()
+                .filter(item -> resourceId.equals(item.resourceId()))
+                .findFirst()
+                .orElse(items.getFirst());
+    }
+
+    private List<IntegrationSourceItemResponse> listGithubSources(OAuthConnection connection) {
+        List<Map<String, Object>> repos = githubApiList(connection.getAccessToken(), "/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member");
+        return repos.stream()
+                .map(repo -> buildGithubSource(connection.getAccessToken(), repo))
+                .toList();
+    }
+
+    private IntegrationSourceItemResponse buildGithubSource(String token, Map<String, Object> repo) {
+        String fullName = Objects.toString(repo.get("full_name"), Objects.toString(repo.get("name"), ""));
+        Map<String, Object> languages = githubApi(token, "/repos/" + fullName + "/languages");
+        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=open&per_page=5");
+        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=open&per_page=5");
+        List<Map<String, Object>> releases = githubApiList(token, "/repos/" + fullName + "/releases?per_page=5");
+        Map<String, Object> readme = githubApi(token, "/repos/" + fullName + "/readme");
+
+        List<String> tags = new ArrayList<>();
+        Object repoTopics = repo.get("topics");
+        if (repoTopics instanceof List<?> topics) {
+            for (Object topic : topics) {
+                String value = Objects.toString(topic, "");
+                if (!value.isBlank()) {
+                    tags.add(value);
+                }
+            }
+        }
+        if (repo.get("language") != null) {
+            tags.add(Objects.toString(repo.get("language"), ""));
+        }
+        if (languages != null) {
+            tags.addAll(languages.keySet().stream().limit(3).toList());
+        }
+
+        Map<String, Object> raw = new LinkedHashMap<>();
+        raw.put("repo", repo);
+        raw.put("languages", languages);
+        raw.put("issues", issues);
+        raw.put("pulls", pulls);
+        raw.put("releases", releases);
+        raw.put("readme", readme);
+
+        String readmeExcerpt = decodeGithubReadmeExcerpt(readme);
+        String summary = buildGithubSummary(repo, readmeExcerpt, languages, issues, pulls, releases);
+        return new IntegrationSourceItemResponse(
+                ProviderType.GITHUB,
+                fullName,
+                "REPOSITORY",
+                Objects.toString(repo.get("name"), fullName),
+                Objects.toString(repo.get("description"), "Repository source"),
+                summary,
+                Objects.toString(repo.get("html_url"), null),
+                Objects.toString(((Map<?, ?>) repo.getOrDefault("owner", Map.of())).get("avatar_url"), null),
+                tags.stream().filter(StringUtils::hasText).distinct().toList(),
+                raw
+        );
+    }
+
+    private String buildGithubSummary(Map<String, Object> repo, String readmeExcerpt, Map<String, Object> languages, List<Map<String, Object>> issues, List<Map<String, Object>> pulls, List<Map<String, Object>> releases) {
+        List<String> parts = new ArrayList<>();
+        String description = Objects.toString(repo.get("description"), "");
+        if (StringUtils.hasText(description)) parts.add(description);
+        if (languages != null && !languages.isEmpty()) parts.add("Languages: " + String.join(", ", languages.keySet().stream().limit(3).toList()));
+        if (issues != null && !issues.isEmpty()) parts.add("Issues: " + issues.size());
+        if (pulls != null && !pulls.isEmpty()) parts.add("PRs: " + pulls.size());
+        if (releases != null && !releases.isEmpty()) parts.add("Releases: " + releases.size());
+        if (StringUtils.hasText(readmeExcerpt)) parts.add(readmeExcerpt);
+        return String.join(" • ", parts);
+    }
+
+    private String decodeGithubReadmeExcerpt(Map<String, Object> readme) {
+        if (readme == null || readme.isEmpty()) return "";
+        String encoded = Objects.toString(readme.get("content"), "");
+        if (!StringUtils.hasText(encoded)) return "";
+        try {
+            String decoded = new String(Base64.getDecoder().decode(encoded.replaceAll("\\s", "")));
+            return decoded.length() > 180 ? decoded.substring(0, 180) + "..." : decoded;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private List<IntegrationSourceItemResponse> listNotionSources(OAuthConnection connection) {
+        Map<String, Object> result = notionSearch(connection.getAccessToken());
+        List<Map<String, Object>> items = result.get("results") instanceof List<?> list
+                ? list.stream().filter(Map.class::isInstance).map(item -> (Map<String, Object>) item).toList()
+                : List.of();
+        return items.stream().map(item -> buildNotionSource(item)).toList();
+    }
+
+    private Map<String, Object> notionSearch(String token) {
+        Map<String, Object> body = restClient.post()
+                .uri("https://api.notion.com/v1/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + token)
+                .header("Notion-Version", "2022-06-28")
+                .body(Map.of("page_size", 20))
+                .retrieve()
+                .body(Map.class);
+        return body == null ? Map.of() : body;
+    }
+
+    private IntegrationSourceItemResponse buildNotionSource(Map<String, Object> item) {
+        String type = Objects.toString(item.get("object"), "page").toUpperCase(Locale.ROOT);
+        String resourceId = Objects.toString(item.get("id"), "");
+        String title = extractNotionTitle(item);
+        String url = Objects.toString(item.get("url"), null);
+        String summary = Objects.toString(item.get("last_edited_time"), "Notion source");
+        String imageUrl = null;
+        Object icon = item.get("icon");
+        if (icon instanceof Map<?, ?> iconMap) {
+            imageUrl = Objects.toString(iconMap.get("emoji"), null);
+        }
+        return new IntegrationSourceItemResponse(
+                ProviderType.NOTION,
+                resourceId,
+                type,
+                title,
+                Objects.toString(item.get("object"), "Notion page"),
+                summary,
+                url,
+                imageUrl,
+                List.of(type.toLowerCase(Locale.ROOT), "notion"),
+                item
+        );
+    }
+
+    private String extractNotionTitle(Map<String, Object> item) {
+        Object properties = item.get("properties");
+        if (properties instanceof Map<?, ?> map) {
+            for (Object value : map.values()) {
+                if (value instanceof Map<?, ?> valueMap) {
+                    Object title = valueMap.get("title");
+                    if (title instanceof List<?> titleList && !titleList.isEmpty()) {
+                        Object first = titleList.getFirst();
+                        if (first instanceof Map<?, ?> firstMap) {
+                            String text = Objects.toString(firstMap.get("plain_text"), "");
+                            if (StringUtils.hasText(text)) {
+                                return text;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Object title = item.get("title");
+        if (title instanceof List<?> titleList && !titleList.isEmpty()) {
+            Object first = titleList.getFirst();
+            if (first instanceof Map<?, ?> firstMap) {
+                String text = Objects.toString(firstMap.get("plain_text"), "");
+                if (StringUtils.hasText(text)) {
+                    return text;
+                }
+            }
+        }
+        return Objects.toString(item.get("id"), "Notion source");
+    }
+
+    private List<IntegrationSourceItemResponse> listFigmaSources(OAuthConnection connection) {
+        String workspaceUrl = connection.getWorkspaceUrl();
+        String fileKey = extractFigmaFileKey(workspaceUrl);
+        if (!StringUtils.hasText(fileKey)) {
+            return List.of();
+        }
+        Map<String, Object> file = figmaFile(connection.getAccessToken(), fileKey);
+        Object document = file.get("document");
+        if (!(document instanceof Map<?, ?> root)) {
+            return List.of();
+        }
+        List<IntegrationSourceItemResponse> items = new ArrayList<>();
+        collectFigmaNodes(fileKey, workspaceUrl, file, root, "FILE", 0, items);
+        return items;
+    }
+
+    private Map<String, Object> figmaFile(String token, String fileKey) {
+        Map<String, Object> body = restClient.get()
+                .uri("https://api.figma.com/v1/files/" + fileKey)
+                .header("Authorization", "Bearer " + token)
+                .retrieve()
+                .body(Map.class);
+        return body == null ? Map.of() : body;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void collectFigmaNodes(String fileKey, String workspaceUrl, Map<String, Object> file, Map<?, ?> node, String path, int depth, List<IntegrationSourceItemResponse> items) {
+        if (items.size() >= 30) {
+            return;
+        }
+        String type = Objects.toString(node.get("type"), "").toUpperCase(Locale.ROOT);
+        String name = Objects.toString(node.get("name"), "");
+        String id = Objects.toString(node.get("id"), "");
+        String currentPath = path;
+        if (StringUtils.hasText(name)) {
+            currentPath = StringUtils.hasText(path) ? path + " / " + name : name;
+        }
+        if (StringUtils.hasText(id) && (depth == 0 || Set.of("PAGE", "FRAME", "SECTION", "COMPONENT", "INSTANCE").contains(type))) {
+            Object childrenObj = node.get("children");
+            int childCount = childrenObj instanceof List<?> childList ? childList.size() : 0;
+            Map<String, Object> raw = new LinkedHashMap<>();
+            raw.put("file", file);
+            raw.put("node", new LinkedHashMap<>((Map<String, Object>) node));
+            raw.put("path", currentPath);
+            raw.put("childCount", childCount);
+            items.add(new IntegrationSourceItemResponse(
+                    ProviderType.FIGMA,
+                    fileKey + ":" + id,
+                    type.isBlank() ? "NODE" : type,
+                    StringUtils.hasText(name) ? name : "Untitled node",
+                    currentPath,
+                    childCount + " child nodes",
+                    buildFigmaUrl(workspaceUrl, id),
+                    null,
+                    List.of(type.isBlank() ? "node" : type.toLowerCase(Locale.ROOT)),
+                    raw
+            ));
+        }
+
+        Object children = node.get("children");
+        if (children instanceof List<?> childList) {
+            for (Object child : childList) {
+                if (items.size() >= 30) {
+                    break;
+                }
+                if (child instanceof Map<?, ?> childMap) {
+                    collectFigmaNodes(fileKey, workspaceUrl, file, childMap, currentPath, depth + 1, items);
+                }
+            }
+        }
+    }
+
+    private String extractFigmaFileKey(String workspaceUrl) {
+        if (!StringUtils.hasText(workspaceUrl)) {
+            return "";
+        }
+        String cleaned = workspaceUrl.trim();
+        if (cleaned.contains("figma.com/file/")) {
+            String after = cleaned.substring(cleaned.indexOf("figma.com/file/") + "figma.com/file/".length());
+            return after.split("[/?#]")[0];
+        }
+        if (cleaned.contains("figma.com/design/")) {
+            String after = cleaned.substring(cleaned.indexOf("figma.com/design/") + "figma.com/design/".length());
+            return after.split("[/?#]")[0];
+        }
+        return cleaned.split("[/?#]")[0];
+    }
+
+    private String buildFigmaUrl(String workspaceUrl, String nodeId) {
+        if (!StringUtils.hasText(workspaceUrl)) {
+            return null;
+        }
+        return workspaceUrl.contains("?") ? workspaceUrl + "&node-id=" + nodeId : workspaceUrl + "?node-id=" + nodeId;
+    }
+
     private String buildAuthorizeUrl(String authorizeBaseUrl, String clientId, String redirectUri, String scope) {
         if (clientId == null || clientId.isBlank() || clientId.contains("placeholder")) {
             throw new CustomException(ErrorCode.INVALID_REQUEST);
@@ -149,7 +434,8 @@ public class IntegrationServiceImpl implements IntegrationService {
                 .queryParam("response_type", "code")
                 .queryParam("scope", scope)
                 .queryParam("state", UUID.randomUUID())
-                .build(true)
+                .build()
+                .encode()
                 .toUriString();
     }
 
@@ -163,62 +449,98 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private TokenBundle exchangeGithub(String code) {
-        Map<String, Object> body = restClient.post()
-                .uri("https://github.com/login/oauth/access_token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.APPLICATION_JSON)
-                .body(Map.of(
-                        "client_id", githubClientId,
-                        "client_secret", githubClientSecret,
-                        "code", code,
-                        "redirect_uri", githubRedirectUri
-                ))
-                .retrieve()
-                .body(Map.class);
+        try {
+            Map<String, Object> body = restClient.post()
+                    .uri("https://github.com/login/oauth/access_token")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(Map.of(
+                            "client_id", githubClientId,
+                            "client_secret", githubClientSecret,
+                            "code", code,
+                            "redirect_uri", githubRedirectUri
+                    ))
+                    .retrieve()
+                    .body(Map.class);
 
-        String accessToken = Objects.toString(body.get("access_token"), null);
-        String refreshToken = Objects.toString(body.get("refresh_token"), null);
-        return new TokenBundle(accessToken, refreshToken, null, null);
+            if (body == null || body.containsKey("error") || body.get("access_token") == null) {
+                log.warn("GitHub token exchange failed: {}", body);
+                throw new CustomException(ErrorCode.INVALID_REQUEST);
+            }
+            String accessToken = Objects.toString(body.get("access_token"), null);
+            String refreshToken = Objects.toString(body.get("refresh_token"), null);
+            return new TokenBundle(accessToken, refreshToken, null, null);
+        } catch (RestClientResponseException e) {
+            log.warn("GitHub token exchange error: status={} body={}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        } catch (RestClientException e) {
+            log.warn("GitHub token exchange transport error: {}", e.getMessage(), e);
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
     }
 
     private TokenBundle exchangeNotion(String code) {
-        Map<String, Object> body = restClient.post()
-                .uri("https://api.notion.com/v1/oauth/token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", basicAuth(notionClientId, notionClientSecret))
-                .header("Notion-Version", "2022-06-28")
-                .body(Map.of(
-                        "grant_type", "authorization_code",
-                        "code", code,
-                        "redirect_uri", notionRedirectUri
-                ))
-                .retrieve()
-                .body(Map.class);
+        try {
+            Map<String, Object> body = restClient.post()
+                    .uri("https://api.notion.com/v1/oauth/token")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("Authorization", basicAuth(notionClientId, notionClientSecret))
+                    .header("Notion-Version", "2022-06-28")
+                    .body(Map.of(
+                            "grant_type", "authorization_code",
+                            "code", code,
+                            "redirect_uri", notionRedirectUri
+                    ))
+                    .retrieve()
+                    .body(Map.class);
 
-        String accessToken = Objects.toString(body.get("access_token"), null);
-        String refreshToken = Objects.toString(body.get("refresh_token"), null);
-        Long expiresIn = body.get("expires_in") == null ? null : Long.valueOf(body.get("expires_in").toString());
-        return new TokenBundle(accessToken, refreshToken, null, expiresIn == null ? null : LocalDateTime.now().plusSeconds(expiresIn));
+            if (body == null || body.containsKey("error") || body.get("access_token") == null) {
+                log.warn("Notion token exchange failed: {}", body);
+                throw new CustomException(ErrorCode.INVALID_REQUEST);
+            }
+            String accessToken = Objects.toString(body.get("access_token"), null);
+            String refreshToken = Objects.toString(body.get("refresh_token"), null);
+            Long expiresIn = body.get("expires_in") == null ? null : Long.valueOf(body.get("expires_in").toString());
+            return new TokenBundle(accessToken, refreshToken, null, expiresIn == null ? null : LocalDateTime.now().plusSeconds(expiresIn));
+        } catch (RestClientResponseException e) {
+            log.warn("Notion token exchange error: status={} body={}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        } catch (RestClientException e) {
+            log.warn("Notion token exchange transport error: {}", e.getMessage(), e);
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
     }
 
     private TokenBundle exchangeFigma(String code) {
-        Map<String, Object> body = restClient.post()
-                .uri("https://www.figma.com/api/oauth/token")
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(formData(Map.of(
-                        "grant_type", "authorization_code",
-                        "code", code,
-                        "redirect_uri", figmaRedirectUri,
-                        "client_id", figmaClientId,
-                        "client_secret", figmaClientSecret
-                )))
-                .retrieve()
-                .body(Map.class);
+        try {
+            Map<String, Object> body = restClient.post()
+                    .uri("https://www.figma.com/api/oauth/token")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(formData(Map.of(
+                            "grant_type", "authorization_code",
+                            "code", code,
+                            "redirect_uri", figmaRedirectUri,
+                            "client_id", figmaClientId,
+                            "client_secret", figmaClientSecret
+                    )))
+                    .retrieve()
+                    .body(Map.class);
 
-        String accessToken = Objects.toString(body.get("access_token"), null);
-        String refreshToken = Objects.toString(body.get("refresh_token"), null);
-        Long expiresIn = body.get("expires_in") == null ? null : Long.valueOf(body.get("expires_in").toString());
-        return new TokenBundle(accessToken, refreshToken, null, expiresIn == null ? null : LocalDateTime.now().plusSeconds(expiresIn));
+            if (body == null || body.containsKey("error") || body.get("access_token") == null) {
+                log.warn("Figma token exchange failed: {}", body);
+                throw new CustomException(ErrorCode.INVALID_REQUEST);
+            }
+            String accessToken = Objects.toString(body.get("access_token"), null);
+            String refreshToken = Objects.toString(body.get("refresh_token"), null);
+            Long expiresIn = body.get("expires_in") == null ? null : Long.valueOf(body.get("expires_in").toString());
+            return new TokenBundle(accessToken, refreshToken, null, expiresIn == null ? null : LocalDateTime.now().plusSeconds(expiresIn));
+        } catch (RestClientResponseException e) {
+            log.warn("Figma token exchange error: status={} body={}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        } catch (RestClientException e) {
+            log.warn("Figma token exchange transport error: {}", e.getMessage(), e);
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
     }
 
     private IntegrationPreviewResponse previewGithub(OAuthConnection connection) {
@@ -272,45 +594,77 @@ public class IntegrationServiceImpl implements IntegrationService {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> githubApi(String token, String path) {
-        Map<String, Object> body = restClient.get()
-                .uri("https://api.github.com" + path)
-                .header("Authorization", "Bearer " + token)
-                .header("Accept", "application/vnd.github+json")
-                .retrieve()
-                .body(Map.class);
-        return body == null ? Map.of() : body;
+        try {
+            Map<String, Object> body = restClient.get()
+                    .uri("https://api.github.com" + path)
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/vnd.github+json")
+                    .retrieve()
+                    .body(Map.class);
+            return body == null ? Map.of() : body;
+        } catch (RestClientResponseException e) {
+            log.warn("GitHub API error on {}: status={} body={}", path, e.getStatusCode().value(), e.getResponseBodyAsString());
+            return Map.of();
+        } catch (RestClientException e) {
+            log.warn("GitHub API transport error on {}: {}", path, e.getMessage(), e);
+            return Map.of();
+        }
     }
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> githubApiList(String token, String path) {
-        List<Map<String, Object>> body = restClient.get()
-                .uri("https://api.github.com" + path)
-                .header("Authorization", "Bearer " + token)
-                .header("Accept", "application/vnd.github+json")
-                .retrieve()
-                .body(List.class);
-        return body == null ? List.of() : body;
+        try {
+            List<Map<String, Object>> body = restClient.get()
+                    .uri("https://api.github.com" + path)
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/vnd.github+json")
+                    .retrieve()
+                    .body(List.class);
+            return body == null ? List.of() : body;
+        } catch (RestClientResponseException e) {
+            log.warn("GitHub API list error on {}: status={} body={}", path, e.getStatusCode().value(), e.getResponseBodyAsString());
+            return List.of();
+        } catch (RestClientException e) {
+            log.warn("GitHub API transport error on {}: {}", path, e.getMessage(), e);
+            return List.of();
+        }
     }
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> notionApi(String token, String path) {
-        Map<String, Object> body = restClient.get()
-                .uri("https://api.notion.com" + path)
-                .header("Authorization", "Bearer " + token)
-                .header("Notion-Version", "2022-06-28")
-                .retrieve()
-                .body(Map.class);
-        return body == null ? Map.of() : body;
+        try {
+            Map<String, Object> body = restClient.get()
+                    .uri("https://api.notion.com" + path)
+                    .header("Authorization", "Bearer " + token)
+                    .header("Notion-Version", "2022-06-28")
+                    .retrieve()
+                    .body(Map.class);
+            return body == null ? Map.of() : body;
+        } catch (RestClientResponseException e) {
+            log.warn("Notion API error on {}: status={} body={}", path, e.getStatusCode().value(), e.getResponseBodyAsString());
+            return Map.of();
+        } catch (RestClientException e) {
+            log.warn("Notion API transport error on {}: {}", path, e.getMessage(), e);
+            return Map.of();
+        }
     }
 
     private Map<String, Object> extractNotionTitle(String pageId, String token) {
-        Map<String, Object> blocks = restClient.get()
-                .uri("https://api.notion.com/v1/blocks/" + pageId + "/children?page_size=1")
-                .header("Authorization", "Bearer " + token)
-                .header("Notion-Version", "2022-06-28")
-                .retrieve()
-                .body(Map.class);
-        return blocks == null ? Map.of() : blocks;
+        try {
+            Map<String, Object> blocks = restClient.get()
+                    .uri("https://api.notion.com/v1/blocks/" + pageId + "/children?page_size=1")
+                    .header("Authorization", "Bearer " + token)
+                    .header("Notion-Version", "2022-06-28")
+                    .retrieve()
+                    .body(Map.class);
+            return blocks == null ? Map.of() : blocks;
+        } catch (RestClientResponseException e) {
+            log.warn("Notion title fetch error on {}: status={} body={}", pageId, e.getStatusCode().value(), e.getResponseBodyAsString());
+            return Map.of();
+        } catch (RestClientException e) {
+            log.warn("Notion title fetch transport error on {}: {}", pageId, e.getMessage(), e);
+            return Map.of();
+        }
     }
 
     private MultiValueMap<String, String> formData(Map<String, String> values) {

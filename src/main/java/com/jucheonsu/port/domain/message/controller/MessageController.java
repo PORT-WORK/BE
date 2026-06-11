@@ -4,9 +4,11 @@ import com.jucheonsu.port.domain.message.dto.request.MessageCreateRequest;
 import com.jucheonsu.port.domain.message.dto.response.MessageResponse;
 import com.jucheonsu.port.domain.message.service.MessageService;
 import com.jucheonsu.port.global.response.ApiResponse;
+import com.jucheonsu.port.global.security.principal.PrincipalDetails;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 import java.util.List;
 
@@ -18,28 +20,32 @@ public class MessageController {
     private final MessageService messageService;
 
     @GetMapping("/inbox")
-    public ApiResponse<List<MessageResponse>> getInbox(@RequestHeader("X-USER-ID") Long userId) {
+    public ApiResponse<List<MessageResponse>> getInbox(@AuthenticationPrincipal PrincipalDetails principal) {
+        Long userId = principal.getUserId();
         return ApiResponse.ok(messageService.getInbox(userId));
     }
 
     @GetMapping("/sent")
-    public ApiResponse<List<MessageResponse>> getSent(@RequestHeader("X-USER-ID") Long userId) {
+    public ApiResponse<List<MessageResponse>> getSent(@AuthenticationPrincipal PrincipalDetails principal) {
+        Long userId = principal.getUserId();
         return ApiResponse.ok(messageService.getSent(userId));
     }
 
     @PostMapping
     public ApiResponse<MessageResponse> send(
-            @RequestHeader("X-USER-ID") Long userId,
+            @AuthenticationPrincipal PrincipalDetails principal,
             @Valid @RequestBody MessageCreateRequest request
     ) {
+        Long userId = principal.getUserId();
         return ApiResponse.ok(messageService.send(userId, request));
     }
 
     @PutMapping("/{messageId}/read")
     public ApiResponse<MessageResponse> markAsRead(
-            @RequestHeader("X-USER-ID") Long userId,
+            @AuthenticationPrincipal PrincipalDetails principal,
             @PathVariable Long messageId
     ) {
+        Long userId = principal.getUserId();
         return ApiResponse.ok(messageService.markAsRead(userId, messageId));
     }
 }
