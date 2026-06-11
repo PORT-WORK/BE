@@ -34,8 +34,9 @@ spring:
 
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      url: ${REDIS_URL:redis://localhost:6379}
+      connect-timeout: 5s
+      timeout: 5s
 
   security:
     oauth2:
@@ -107,3 +108,4 @@ cloudinary:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
