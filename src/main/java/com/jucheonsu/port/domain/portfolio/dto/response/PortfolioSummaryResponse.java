@@ -4,6 +4,7 @@ import java.util.List;
 
 public record PortfolioSummaryResponse(
         Long id,
+        Long userId,
         String title,
         String jobRole,
         String thumbnailUrl,

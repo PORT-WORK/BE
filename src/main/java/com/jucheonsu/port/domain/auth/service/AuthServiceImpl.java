@@ -1,7 +1,10 @@
 package com.jucheonsu.port.domain.auth.service;
 
+import com.jucheonsu.port.domain.auth.dto.request.LocalLoginRequest;
 import com.jucheonsu.port.domain.auth.dto.request.TokenRefreshRequest;
+import com.jucheonsu.port.domain.auth.dto.response.LoginResponse;
 import com.jucheonsu.port.domain.auth.dto.response.TokenResponse;
+import com.jucheonsu.port.domain.user.converter.UserConverter;
 import com.jucheonsu.port.domain.user.entity.User;
 import com.jucheonsu.port.domain.user.repository.UserRepository;
 import com.jucheonsu.port.global.exception.CustomException;
@@ -13,6 +16,7 @@ import com.jucheonsu.port.infra.redis.RefreshTokenRedisRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +28,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenRedisRepository refreshTokenRedisRepository;
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Value("${jwt.access-expiration-ms}")
     private long accessExpirationMs;
@@ -33,6 +38,23 @@ public class AuthServiceImpl implements AuthService {
 
     @Value("${app.cookie-secure:true}")
     private boolean cookieSecure;
+
+    public LoginResponse login(LocalLoginRequest request, HttpServletResponse response) {
+        User user = userRepository.findByEmailAndDeletedAtIsNull(request.email())
+                .orElseThrow(() -> new CustomException(ErrorCode.INVALID_REQUEST));
+        if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
+
+        String accessToken = jwtTokenProvider.createAccessToken(user.getId(), user.getEmail());
+        String refreshToken = jwtTokenProvider.createRefreshToken(user.getId(), user.getEmail());
+        refreshTokenRedisRepository.save(user.getId(), refreshToken);
+
+        CookieUtil.addHttpOnlyCookie(response, "ACCESS_TOKEN", accessToken, accessExpirationMs / 1000, cookieSecure);
+        CookieUtil.addHttpOnlyCookie(response, "REFRESH_TOKEN", refreshToken, refreshExpirationMs / 1000, cookieSecure);
+
+        return new LoginResponse(accessToken, UserConverter.toResponse(user));
+    }
 
     public TokenResponse refresh(TokenRefreshRequest request, HttpServletResponse response) {
         String refreshToken = request.refreshToken();

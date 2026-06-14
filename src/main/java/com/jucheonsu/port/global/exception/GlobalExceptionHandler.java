@@ -1,6 +1,7 @@
 package com.jucheonsu.port.global.exception;
 
 import com.jucheonsu.port.global.response.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -15,7 +16,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(CustomException.class)
-    public ResponseEntity<ApiResponse<Void>> handleCustomException(CustomException e) {
+    public ResponseEntity<?> handleCustomException(CustomException e, HttpServletRequest request) {
+        if (isSseRequest(request)) {
+            return ResponseEntity.status(e.getErrorCode().getStatus()).contentType(MediaType.TEXT_EVENT_STREAM).build();
+        }
         return ResponseEntity
                 .status(e.getErrorCode().getStatus())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -23,7 +27,10 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
-    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(Exception e) {
+    public ResponseEntity<?> handleAccessDenied(Exception e, HttpServletRequest request) {
+        if (isSseRequest(request)) {
+            return ResponseEntity.status(403).contentType(MediaType.TEXT_EVENT_STREAM).build();
+        }
         return ResponseEntity
                 .status(403)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -39,7 +46,10 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
-    public ResponseEntity<ApiResponse<Void>> handleNotAcceptable(HttpMediaTypeNotAcceptableException e) {
+    public ResponseEntity<?> handleNotAcceptable(HttpMediaTypeNotAcceptableException e, HttpServletRequest request) {
+        if (isSseRequest(request)) {
+            return ResponseEntity.status(406).contentType(MediaType.TEXT_EVENT_STREAM).build();
+        }
         return ResponseEntity
                 .status(406)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -47,10 +57,20 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
+    public ResponseEntity<?> handleException(Exception e, HttpServletRequest request) {
+        if (isSseRequest(request)) {
+            return ResponseEntity.internalServerError().contentType(MediaType.TEXT_EVENT_STREAM).build();
+        }
         return ResponseEntity
                 .internalServerError()
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.error("서버 내부 오류가 발생했습니다."));
+    }
+
+    private boolean isSseRequest(HttpServletRequest request) {
+        String accept = request.getHeader("Accept");
+        String uri = request.getRequestURI();
+        return (accept != null && accept.contains(MediaType.TEXT_EVENT_STREAM_VALUE))
+                || (uri != null && uri.startsWith("/api/realtime/stream"));
     }
 }

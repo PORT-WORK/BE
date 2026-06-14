@@ -41,12 +41,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilterAsyncDispatch() {
-        return false;
+        return true;
     }
 
     @Override
     protected boolean shouldNotFilterErrorDispatch() {
-        return false;
+        return true;
     }
 
     private String resolveToken(HttpServletRequest request) {

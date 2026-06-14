@@ -6,19 +6,22 @@ import com.jucheonsu.port.global.security.jwt.JwtTokenProvider;
 import com.jucheonsu.port.global.security.oauth.OAuth2FailureHandler;
 import com.jucheonsu.port.global.security.oauth.OAuth2SuccessHandler;
 import com.jucheonsu.port.global.security.principal.PrincipalDetailsService;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import jakarta.servlet.DispatcherType;
 
 @Configuration
 @EnableWebSecurity
@@ -43,9 +46,17 @@ public class SecurityConfig {
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            if (response.isCommitted()) {
+                                return;
+                            }
+                            String accept = request.getHeader("Accept");
                             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                            response.setContentType("application/json;charset=UTF-8");
-                            response.getWriter().write("{\"success\":false,\"message\":\"접근 권한이 없습니다.\",\"data\":null}");
+                            if (accept != null && accept.contains(MediaType.TEXT_EVENT_STREAM_VALUE)) {
+                                response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8");
+                                return;
+                            }
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE + ";charset=UTF-8");
+                            response.getWriter().write("{\"success\":false,\"message\":\"Access denied.\",\"data\":null}");
                         })
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -71,5 +82,10 @@ public class SecurityConfig {
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 }

@@ -15,6 +15,7 @@ public final class PortfolioConverter {
     public static PortfolioSummaryResponse toSummaryResponse(Portfolio portfolio) {
         return new PortfolioSummaryResponse(
                 portfolio.getId(),
+                portfolio.getUser().getId(),
                 portfolio.getTitle(),
                 portfolio.getJobRole(),
                 portfolio.getThumbnailUrl(),
