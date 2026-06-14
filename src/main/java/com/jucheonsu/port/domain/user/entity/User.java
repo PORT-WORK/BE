@@ -22,7 +22,7 @@ public class User extends BaseEntity {
     @Column(nullable = false, length = 50)
     private String name;
 
-    @Column(length = 500)
+    @Column(length = 5000)
     private String profileImageUrl;
 
     @Enumerated(EnumType.STRING)
