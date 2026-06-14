@@ -229,7 +229,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubIssueSources(String token, String fullName) {
-        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=10");
+        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=30&filter=all");
         return issues.stream()
                 .filter(issue -> !issue.containsKey("pull_request"))
                 .limit(3)
@@ -254,7 +254,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubPullRequestSources(String token, String fullName) {
-        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=all&per_page=3");
+        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=all&per_page=5");
         return pulls.stream()
                 .limit(3)
                 .map(pr -> {
@@ -481,7 +481,11 @@ public class IntegrationServiceImpl implements IntegrationService {
 
     private Map<String, Object> figmaFile(String token, String fileKey) {
         Map<String, Object> body = restClient.get()
-                .uri("https://api.figma.com/v1/files/" + fileKey)
+                .uri(uriBuilder -> uriBuilder
+                        .scheme("https")
+                        .host("api.figma.com")
+                        .path("/v1/files/{fileKey}")
+                        .build(fileKey))
                 .header("Authorization", "Bearer " + token)
                 .retrieve()
                 .body(Map.class);
@@ -519,7 +523,7 @@ public class IntegrationServiceImpl implements IntegrationService {
                     currentPath,
                     childCount + " child nodes",
                     buildFigmaUrl(workspaceUrl, id),
-                    figmaImageUrl(token, fileKey, id),
+                    shouldExportFigmaImage(type, items.size()) ? figmaImageUrl(token, fileKey, id) : null,
                     List.of(type.isBlank() ? "node" : type.toLowerCase(Locale.ROOT)),
                     raw
             ));
@@ -565,6 +569,10 @@ public class IntegrationServiceImpl implements IntegrationService {
         }
     }
 
+    private boolean shouldExportFigmaImage(String type, int currentCount) {
+        return currentCount < 10 && Set.of("FRAME", "SECTION", "COMPONENT", "INSTANCE").contains(type);
+    }
+
     private String extractFigmaFileKey(String workspaceUrl) {
         if (!StringUtils.hasText(workspaceUrl)) {
             return "";
@@ -585,7 +593,8 @@ public class IntegrationServiceImpl implements IntegrationService {
         if (!StringUtils.hasText(workspaceUrl)) {
             return null;
         }
-        return workspaceUrl.contains("?") ? workspaceUrl + "&node-id=" + nodeId : workspaceUrl + "?node-id=" + nodeId;
+        String safeNodeId = nodeId == null ? "" : nodeId.replace(":", "-");
+        return workspaceUrl.contains("?") ? workspaceUrl + "&node-id=" + safeNodeId : workspaceUrl + "?node-id=" + safeNodeId;
     }
 
     private String buildAuthorizeUrl(String authorizeBaseUrl, String clientId, String redirectUri, String scope) {
@@ -819,6 +828,10 @@ public class IntegrationServiceImpl implements IntegrationService {
                     .body(List.class);
             return body == null ? List.of() : body;
         } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404) {
+                log.debug("GitHub API list not found on {}", path);
+                return List.of();
+            }
             log.warn("GitHub API list error on {}: status={} body={}", path, e.getStatusCode().value(), e.getResponseBodyAsString());
             return List.of();
         } catch (RestClientException e) {
