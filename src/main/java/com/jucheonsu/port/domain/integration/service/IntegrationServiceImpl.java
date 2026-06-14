@@ -128,6 +128,17 @@ public class IntegrationServiceImpl implements IntegrationService {
         };
     }
 
+    @Transactional
+    public List<IntegrationSourceItemResponse> addSource(Long userId, ProviderType provider, String sourceUrl) {
+        if (provider != ProviderType.FIGMA || !StringUtils.hasText(sourceUrl)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST);
+        }
+        OAuthConnection connection = connectionRepository.findByUserIdAndProvider(userId, provider)
+                .orElseThrow(() -> new CustomException(ErrorCode.OAUTH_CONNECTION_NOT_FOUND));
+        connection.update(connection.getAccessToken(), connection.getRefreshToken(), sourceUrl.trim(), connection.getExpiresAt());
+        return listFigmaSources(connection);
+    }
+
     public IntegrationPreviewResponse preview(Long userId, ProviderType provider, String resourceId) {
         IntegrationSourceItemResponse item = findSourceItem(userId, provider, resourceId);
         return new IntegrationPreviewResponse(
@@ -217,7 +228,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubIssueSources(String token, String fullName) {
-        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=1");
+        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=3");
         return issues.stream()
                 .filter(issue -> !issue.containsKey("pull_request"))
                 .map(issue -> {
@@ -241,7 +252,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubPullRequestSources(String token, String fullName) {
-        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=all&per_page=1");
+        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=all&per_page=3");
         return pulls.stream()
                 .map(pr -> {
                     String number = Objects.toString(pr.get("number"), "");
@@ -264,7 +275,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubReleaseSources(String token, String fullName) {
-        List<Map<String, Object>> releases = githubApiList(token, "/repos/" + fullName + "/releases?per_page=1");
+        List<Map<String, Object>> releases = githubApiList(token, "/repos/" + fullName + "/releases?per_page=3");
         return releases.stream()
                 .map(release -> {
                     String tag = Objects.toString(release.get("tag_name"), "");
@@ -489,8 +500,11 @@ public class IntegrationServiceImpl implements IntegrationService {
             Object childrenObj = node.get("children");
             int childCount = childrenObj instanceof List<?> childList ? childList.size() : 0;
             Map<String, Object> raw = new LinkedHashMap<>();
-            raw.put("file", file);
-            raw.put("node", new LinkedHashMap<>((Map<String, Object>) node));
+            raw.put("fileKey", fileKey);
+            raw.put("fileName", Objects.toString(file.get("name"), ""));
+            raw.put("nodeId", id);
+            raw.put("nodeType", type);
+            raw.put("name", name);
             raw.put("path", currentPath);
             raw.put("childCount", childCount);
             items.add(new IntegrationSourceItemResponse(
@@ -531,6 +545,7 @@ public class IntegrationServiceImpl implements IntegrationService {
                             .host("api.figma.com")
                             .path("/v1/images/{fileKey}")
                             .queryParam("ids", nodeId)
+                            .queryParam("format", "png")
                             .build(fileKey))
                     .header("Authorization", "Bearer " + token)
                     .retrieve()
@@ -777,6 +792,10 @@ public class IntegrationServiceImpl implements IntegrationService {
                     .body(Map.class);
             return body == null ? Map.of() : body;
         } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404 && path.contains("/readme")) {
+                log.debug("GitHub README not found: {}", path);
+                return Map.of();
+            }
             log.warn("GitHub API error on {}: status={} body={}", path, e.getStatusCode().value(), e.getResponseBodyAsString());
             return Map.of();
         } catch (RestClientException e) {

@@ -3,6 +3,7 @@ package com.jucheonsu.port.domain.integration.controller;
 import com.jucheonsu.port.domain.common.enums.ProviderType;
 import com.jucheonsu.port.domain.integration.dto.request.IntegrationConnectRequest;
 import com.jucheonsu.port.domain.integration.dto.request.IntegrationEmbedRequest;
+import com.jucheonsu.port.domain.integration.dto.request.FigmaSourceRequest;
 import com.jucheonsu.port.domain.integration.dto.response.IntegrationPreviewResponse;
 import com.jucheonsu.port.domain.integration.dto.response.IntegrationSourceItemResponse;
 import com.jucheonsu.port.domain.integration.service.IntegrationService;
@@ -64,6 +65,15 @@ public class IntegrationController {
             @PathVariable ProviderType provider
     ) {
         return ApiResponse.ok(integrationService.listSources(principal.getUserId(), provider));
+    }
+
+    @PostMapping("/{provider}/sources")
+    public ApiResponse<List<IntegrationSourceItemResponse>> addSource(
+            @AuthenticationPrincipal PrincipalDetails principal,
+            @PathVariable ProviderType provider,
+            @RequestBody FigmaSourceRequest request
+    ) {
+        return ApiResponse.ok(integrationService.addSource(principal.getUserId(), provider, request.sourceUrl()));
     }
 
     @PostMapping("/{provider}/embed")

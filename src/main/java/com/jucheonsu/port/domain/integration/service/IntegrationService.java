@@ -13,6 +13,7 @@ public interface IntegrationService {
     void disconnect(Long userId, ProviderType provider);
     List<OAuthConnectionResponse> getConnections(Long userId);
     List<IntegrationSourceItemResponse> listSources(Long userId, ProviderType provider);
+    List<IntegrationSourceItemResponse> addSource(Long userId, ProviderType provider, String sourceUrl);
     IntegrationPreviewResponse preview(Long userId, ProviderType provider, String resourceId);
     Object createEmbedBlock(Long userId, Long documentId, ProviderType provider, String resourceId);
 }
