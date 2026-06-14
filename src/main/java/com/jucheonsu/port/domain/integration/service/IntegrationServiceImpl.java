@@ -174,18 +174,23 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> listGithubSources(OAuthConnection connection) {
-        List<Map<String, Object>> repos = githubApiList(connection.getAccessToken(), "/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member");
+        List<Map<String, Object>> repos = githubApiList(connection.getAccessToken(), "/user/repos?sort=updated&per_page=8&affiliation=owner,collaborator,organization_member");
         List<IntegrationSourceItemResponse> items = new ArrayList<>();
+        int enriched = 0;
         for (Map<String, Object> repo : repos) {
             String fullName = Objects.toString(repo.get("full_name"), Objects.toString(repo.get("name"), ""));
             if (!StringUtils.hasText(fullName)) {
                 continue;
             }
             items.add(buildGithubSource(connection.getAccessToken(), repo));
+            if (enriched >= 5) {
+                continue;
+            }
             items.addAll(buildGithubReadmeSources(connection.getAccessToken(), fullName));
             items.addAll(buildGithubIssueSources(connection.getAccessToken(), fullName));
             items.addAll(buildGithubPullRequestSources(connection.getAccessToken(), fullName));
             items.addAll(buildGithubReleaseSources(connection.getAccessToken(), fullName));
+            enriched++;
         }
         return items.stream().limit(40).toList();
     }
@@ -212,7 +217,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubIssueSources(String token, String fullName) {
-        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=3");
+        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=1");
         return issues.stream()
                 .filter(issue -> !issue.containsKey("pull_request"))
                 .map(issue -> {
@@ -236,7 +241,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubPullRequestSources(String token, String fullName) {
-        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=all&per_page=3");
+        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=all&per_page=1");
         return pulls.stream()
                 .map(pr -> {
                     String number = Objects.toString(pr.get("number"), "");
@@ -259,7 +264,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubReleaseSources(String token, String fullName) {
-        List<Map<String, Object>> releases = githubApiList(token, "/repos/" + fullName + "/releases?per_page=3");
+        List<Map<String, Object>> releases = githubApiList(token, "/repos/" + fullName + "/releases?per_page=1");
         return releases.stream()
                 .map(release -> {
                     String tag = Objects.toString(release.get("tag_name"), "");
@@ -659,7 +664,7 @@ public class IntegrationServiceImpl implements IntegrationService {
             log.info("code={}", code);
 
             Map<String, Object> body = restClient.post()
-                    .uri("https://www.figma.com/api/oauth/token")
+                    .uri("https://api.figma.com/v1/oauth/token")
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .header(
                             "Authorization",
