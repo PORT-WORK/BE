@@ -1,8 +1,7 @@
 package com.jucheonsu.port.domain.portfolio.controller;
 
 import com.jucheonsu.port.domain.portfolio.dto.request.PptExportRequest;
-import com.jucheonsu.port.infra.ppt.PptExportService;
-import com.jucheonsu.port.infra.ppt.PptSlideBuilder;
+import com.jucheonsu.port.domain.portfolio.service.PortfolioPptxService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -17,16 +16,14 @@ import java.nio.charset.StandardCharsets;
 @RequiredArgsConstructor
 public class PortfolioExportController {
 
-    private final PptExportService pptExportService;
-    private final PptSlideBuilder pptSlideBuilder;
+    private final PortfolioPptxService portfolioPptxService;
 
     @GetMapping("/pptx")
     public ResponseEntity<byte[]> exportPptx(
             @PathVariable Long portfolioId,
             @RequestParam(required = false) String sourceText
     ) {
-        String layoutJson = pptSlideBuilder.buildPresentationJson(portfolioId, sourceText);
-        byte[] bytes = pptExportService.exportPortfolio(portfolioId, layoutJson);
+        byte[] bytes = portfolioPptxService.renderAndStore(portfolioId, sourceText, "portfolio-" + portfolioId + ".pptx");
 
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename("portfolio-" + portfolioId + ".pptx", StandardCharsets.UTF_8)
@@ -44,8 +41,7 @@ public class PortfolioExportController {
             @RequestBody(required = false) PptExportRequest request
     ) {
         String sourceText = request == null ? null : request.sourceText();
-        String layoutJson = pptSlideBuilder.buildPresentationJson(portfolioId, sourceText);
-        byte[] bytes = pptExportService.exportPortfolio(portfolioId, layoutJson);
+        byte[] bytes = portfolioPptxService.renderAndStore(portfolioId, sourceText, "portfolio-" + portfolioId + ".pptx");
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()

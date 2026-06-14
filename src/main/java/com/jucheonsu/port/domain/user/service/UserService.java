@@ -5,12 +5,17 @@ import com.jucheonsu.port.domain.user.dto.request.UserUpdateRequest;
 import com.jucheonsu.port.domain.user.dto.response.PublicUserResponse;
 import com.jucheonsu.port.domain.user.dto.response.SettingsResponse;
 import com.jucheonsu.port.domain.user.dto.response.UserResponse;
+import com.jucheonsu.port.domain.portfolio.dto.response.PortfolioSummaryResponse;
+
+import java.util.List;
 
 public interface UserService {
 
     UserResponse getMe(Long userId);
 
     PublicUserResponse getPublicUser(Long userId);
+
+    List<PortfolioSummaryResponse> getPublicUserPortfolios(Long userId);
 
     UserResponse updateMe(Long userId, UserUpdateRequest request);
 

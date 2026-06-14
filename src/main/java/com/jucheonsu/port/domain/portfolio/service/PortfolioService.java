@@ -12,8 +12,10 @@ import java.util.List;
 public interface PortfolioService {
     Page<PortfolioSummaryResponse> searchPublicPortfolios(String jobRole, String skills, Pageable pageable);
     List<PortfolioSummaryResponse> getMyPortfolios(Long userId);
+    List<PortfolioSummaryResponse> getUserPortfolios(Long userId);
     PortfolioResponse create(Long userId, PortfolioCreateRequest request);
     PortfolioResponse getDetail(Long portfolioId);
     PortfolioResponse update(Long userId, Long portfolioId, PortfolioUpdateRequest request);
     void delete(Long userId, Long portfolioId);
+    void updatePptxUrl(Long portfolioId, String pptxUrl);
 }

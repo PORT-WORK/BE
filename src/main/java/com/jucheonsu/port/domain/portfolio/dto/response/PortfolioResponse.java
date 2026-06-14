@@ -1,5 +1,7 @@
 package com.jucheonsu.port.domain.portfolio.dto.response;
 
+import java.util.List;
+
 public record PortfolioResponse(
         Long id,
         Long userId,
@@ -7,8 +9,9 @@ public record PortfolioResponse(
         String jobRole,
         String thumbnailUrl,
         String summary,
-        String skills,
+        List<String> skills,
         String templateId,
+        String pptxUrl,
         String customDomain,
         Boolean isPublic,
         Integer viewCount,

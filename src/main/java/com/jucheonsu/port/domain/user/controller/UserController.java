@@ -2,6 +2,7 @@ package com.jucheonsu.port.domain.user.controller;
 
 import com.jucheonsu.port.domain.user.dto.request.SettingsUpdateRequest;
 import com.jucheonsu.port.domain.user.dto.request.UserUpdateRequest;
+import com.jucheonsu.port.domain.portfolio.dto.response.PortfolioSummaryResponse;
 import com.jucheonsu.port.domain.user.dto.response.PublicUserResponse;
 import com.jucheonsu.port.domain.user.dto.response.SettingsResponse;
 import com.jucheonsu.port.domain.user.dto.response.UserResponse;
@@ -12,6 +13,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/users")
@@ -45,6 +48,11 @@ public class UserController {
     @GetMapping("/{userId}")
     public ApiResponse<PublicUserResponse> getPublicUser(@PathVariable Long userId) {
         return ApiResponse.ok(userService.getPublicUser(userId));
+    }
+
+    @GetMapping("/{userId}/portfolios")
+    public ApiResponse<List<PortfolioSummaryResponse>> getPublicUserPortfolios(@PathVariable Long userId) {
+        return ApiResponse.ok(userService.getPublicUserPortfolios(userId));
     }
 
     @GetMapping("/me/settings")

@@ -8,11 +8,16 @@ import com.jucheonsu.port.domain.user.dto.response.SettingsResponse;
 import com.jucheonsu.port.domain.user.dto.response.UserResponse;
 import com.jucheonsu.port.domain.user.entity.User;
 import com.jucheonsu.port.domain.user.repository.UserRepository;
+import com.jucheonsu.port.domain.portfolio.converter.PortfolioConverter;
+import com.jucheonsu.port.domain.portfolio.dto.response.PortfolioSummaryResponse;
+import com.jucheonsu.port.domain.portfolio.repository.PortfolioRepository;
 import com.jucheonsu.port.global.exception.CustomException;
 import com.jucheonsu.port.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
+    private final PortfolioRepository portfolioRepository;
 
     @Override
     public UserResponse getMe(Long userId) {
@@ -29,6 +35,11 @@ public class UserServiceImpl implements UserService {
     @Override
     public PublicUserResponse getPublicUser(Long userId) {
         return UserConverter.toPublicResponse(getUser(userId));
+    }
+
+    @Override
+    public List<PortfolioSummaryResponse> getPublicUserPortfolios(Long userId) {
+        return portfolioRepository.findPublicPortfoliosByUserId(userId).stream().map(PortfolioConverter::toSummaryResponse).toList();
     }
 
     @Override

@@ -36,6 +36,9 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     @Query("select p from Portfolio p where p.user.id = :userId and p.deletedAt is null order by p.createdAt desc")
     List<Portfolio> findMyPortfolios(@Param("userId") Long userId);
 
+    @Query("select p from Portfolio p where p.user.id = :userId and p.deletedAt is null and p.isPublic = true order by p.createdAt desc")
+    List<Portfolio> findPublicPortfoliosByUserId(@Param("userId") Long userId);
+
     List<Portfolio> findAllByUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long userId);
     Optional<Portfolio> findByIdAndDeletedAtIsNull(Long id);
     Optional<Portfolio> findByIdAndUserIdAndDeletedAtIsNull(Long id, Long userId);

@@ -9,6 +9,7 @@ import com.jucheonsu.port.domain.common.enums.ProviderType;
 import com.jucheonsu.port.domain.integration.dto.response.IntegrationSourceItemResponse;
 import com.jucheonsu.port.domain.integration.service.IntegrationService;
 import com.jucheonsu.port.domain.portfolio.entity.Portfolio;
+import com.jucheonsu.port.domain.portfolio.service.PortfolioPptxService;
 import com.jucheonsu.port.domain.project.dto.request.ProjectWritingSaveRequest;
 import com.jucheonsu.port.domain.project.dto.request.ProjectWritingSelectionRequest;
 import com.jucheonsu.port.domain.project.dto.response.ProjectWritingSessionResponse;
@@ -20,8 +21,6 @@ import com.jucheonsu.port.domain.project.repository.ProjectWritingSessionReposit
 import com.jucheonsu.port.global.exception.CustomException;
 import com.jucheonsu.port.global.exception.ErrorCode;
 import com.jucheonsu.port.infra.openai.OpenAiClient;
-import com.jucheonsu.port.infra.ppt.PptExportService;
-import com.jucheonsu.port.infra.ppt.PptSlideBuilder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,8 +43,7 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
     private final BlockRepository blockRepository;
     private final OpenAiClient openAiClient;
     private final IntegrationService integrationService;
-    private final PptSlideBuilder pptSlideBuilder;
-    private final PptExportService pptExportService;
+    private final PortfolioPptxService portfolioPptxService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -122,7 +120,7 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
         if (!StringUtils.hasText(source)) {
             source = buildDocumentText(readStringMap(session.getSectionDraftJson()), session.getSourceSnapshotJson());
         }
-        String presentationJson = pptSlideBuilder.buildPresentationJson(session.getProject().getPortfolio().getId(), source);
+        String presentationJson = portfolioPptxService.buildLayoutJson(session.getProject().getPortfolio().getId(), source);
         session.markPptCreated(presentationJson);
         return toResponse(session);
     }
@@ -131,18 +129,17 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
     @Transactional
     public byte[] exportPptx(Long projectId) {
         ProjectWritingSession session = getOrCreateSession(getProject(projectId));
-        String source = StringUtils.hasText(session.getPresentationJson())
-                ? session.getPresentationJson()
-                : pptSlideBuilder.buildPresentationJson(
-                session.getProject().getPortfolio().getId(),
-                firstNonBlank(
-                        session.getReviewedDocument(),
-                        session.getDocumentText(),
-                        buildDocumentText(readStringMap(session.getSectionDraftJson()), session.getSourceSnapshotJson())
-                )
+        Long portfolioId = session.getProject().getPortfolio().getId();
+        String sourceText = firstNonBlank(
+                session.getReviewedDocument(),
+                session.getDocumentText(),
+                buildDocumentText(readStringMap(session.getSectionDraftJson()), session.getSourceSnapshotJson())
         );
-        session.markPptCreated(source);
-        return pptExportService.exportPortfolio(session.getProject().getPortfolio().getId(), source);
+        String layoutJson = StringUtils.hasText(session.getPresentationJson())
+                ? session.getPresentationJson()
+                : portfolioPptxService.buildLayoutJson(portfolioId, sourceText);
+        session.markPptCreated(layoutJson);
+        return portfolioPptxService.renderLayoutAndStore(portfolioId, layoutJson, "project-" + projectId + ".pptx");
     }
 
     private Project getProject(Long projectId) {

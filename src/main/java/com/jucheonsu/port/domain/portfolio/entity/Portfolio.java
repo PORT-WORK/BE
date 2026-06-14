@@ -37,6 +37,9 @@ public class Portfolio extends BaseEntity {
     @Column(nullable = false, length = 50)
     private String templateId;
 
+    @Column(length = 2000)
+    private String pptxUrl;
+
     @Column(length = 255)
     private String customDomain;
 
@@ -63,6 +66,10 @@ public class Portfolio extends BaseEntity {
         this.summary = summary;
         this.isPublic = isPublic;
         this.customDomain = customDomain;
+    }
+
+    public void updatePptxUrl(String pptxUrl) {
+        this.pptxUrl = pptxUrl;
     }
 
     public void increaseLikeCount() {

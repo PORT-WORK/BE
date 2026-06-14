@@ -49,6 +49,36 @@ public class CloudinaryUploader {
         }
     }
 
+    public FileUploadResponse upload(byte[] bytes, String fileName, String directory) {
+        if (!StringUtils.hasText(folder)) {
+            throw new UnsupportedOperationException("Cloudinary folder is not configured.");
+        }
+
+        String originalName = StringUtils.cleanPath(fileName == null ? "file.pptx" : fileName);
+        String publicId = buildPublicId(directory, originalName);
+
+        try {
+            Map<?, ?> result = cloudinary.uploader().upload(
+                    bytes,
+                    ObjectUtils.asMap(
+                            "folder", folder + "/" + normalizeDirectory(directory),
+                            "public_id", publicId,
+                            "resource_type", "raw",
+                            "overwrite", true,
+                            "filename_override", originalName,
+                            "use_filename", true,
+                            "unique_filename", false
+                    )
+            );
+
+            String secureUrl = result.get("secure_url") == null ? null : result.get("secure_url").toString();
+            String returnedPublicId = result.get("public_id") == null ? publicId : result.get("public_id").toString();
+            return new FileUploadResponse(secureUrl, returnedPublicId);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to upload PPTX to Cloudinary.", e);
+        }
+    }
+
     private String buildPublicId(String directory, String originalName) {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         return suffix + "-" + originalName;

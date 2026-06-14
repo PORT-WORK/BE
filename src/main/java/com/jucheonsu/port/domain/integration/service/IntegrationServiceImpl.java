@@ -518,7 +518,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     private TokenBundle exchangeFigma(String code) {
         try {
             Map<String, Object> body = restClient.post()
-                    .uri("https://www.figma.com/api/oauth/token")
+                    .uri("https://www.figma.com/oauth/token")
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .body(formData(Map.of(
                             "grant_type", "authorization_code",
