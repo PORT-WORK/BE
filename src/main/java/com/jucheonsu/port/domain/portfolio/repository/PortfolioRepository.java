@@ -12,7 +12,25 @@ import java.util.Optional;
 
 public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
 
-    @Query("select p from Portfolio p where p.deletedAt is null and p.isPublic = true and (:jobRole is null or lower(p.jobRole) like lower(concat('%', :jobRole, '%'))) and (:skills is null or lower(p.skills) like lower(concat('%', :skills, '%')))")
+    @Query(
+            value = """
+                    select *
+                    from portfolios p
+                    where p.deleted_at is null
+                      and p.is_public = true
+                      and (:jobRole is null or lower(coalesce(p.job_role, '')) like lower(concat('%', :jobRole, '%')))
+                      and (:skills is null or lower(coalesce(cast(p.skills as text), '')) like lower(concat('%', :skills, '%')))
+                    """,
+            countQuery = """
+                    select count(*)
+                    from portfolios p
+                    where p.deleted_at is null
+                      and p.is_public = true
+                      and (:jobRole is null or lower(coalesce(p.job_role, '')) like lower(concat('%', :jobRole, '%')))
+                      and (:skills is null or lower(coalesce(cast(p.skills as text), '')) like lower(concat('%', :skills, '%')))
+                    """,
+            nativeQuery = true
+    )
     Page<Portfolio> searchPublicPortfolios(@Param("jobRole") String jobRole, @Param("skills") String skills, Pageable pageable);
 
     @Query("select p from Portfolio p where p.user.id = :userId and p.deletedAt is null order by p.createdAt desc")

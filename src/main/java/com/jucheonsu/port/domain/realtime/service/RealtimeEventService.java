@@ -14,14 +14,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 @Service
 @RequiredArgsConstructor
 public class RealtimeEventService {
 
     private final ConcurrentMap<Long, CopyOnWriteArrayList<SseEmitter>> emitters = new ConcurrentHashMap<>();
-    private final ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService applicationExecutor;
 
     public SseEmitter connect(Long userId) {
         SseEmitter emitter = new SseEmitter(60L * 60L * 1000L);
@@ -64,7 +63,7 @@ public class RealtimeEventService {
     }
 
     private void sendAsync(Long userId, SseEmitter emitter, String eventName, Object data) {
-        executorService.submit(() -> {
+        applicationExecutor.submit(() -> {
             try {
                 emitter.send(SseEmitter.event().name(eventName).data(data));
             } catch (IOException e) {

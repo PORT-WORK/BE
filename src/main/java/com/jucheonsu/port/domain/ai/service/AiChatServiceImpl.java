@@ -20,7 +20,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 @Service
 @RequiredArgsConstructor
@@ -31,7 +30,7 @@ public class AiChatServiceImpl implements AiChatService {
     private final AiChatMessageRepository messageRepository;
     private final AiUsageLimitService aiUsageLimitService;
     private final OpenAiClient openAiClient;
-    private final ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService applicationExecutor;
 
     public List<AiMessageResponse> getMessages(Long workspaceId) {
         return messageRepository.findAllByWorkspaceIdOrderByCreatedAtAsc(workspaceId).stream()
@@ -56,7 +55,7 @@ public class AiChatServiceImpl implements AiChatService {
 
         SseEmitter emitter = new SseEmitter(120_000L);
 
-        executorService.submit(() -> {
+        applicationExecutor.submit(() -> {
             StringBuilder full = new StringBuilder();
             try {
                 String reply = openAiClient.generateChatReply(request.message());
