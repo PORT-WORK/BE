@@ -25,14 +25,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        String token = resolveToken(request);
-        if (StringUtils.hasText(token) && jwtTokenProvider.isValid(token) && jwtTokenProvider.getTokenType(token) == JwtTokenType.ACCESS) {
-            Long userId = jwtTokenProvider.getUserId(token);
-            var principal = principalDetailsService.loadUserById(userId);
-            var authentication = new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+        try {
+            String token = resolveToken(request);
+            if (StringUtils.hasText(token) && jwtTokenProvider.isValid(token) && jwtTokenProvider.getTokenType(token) == JwtTokenType.ACCESS) {
+                Long userId = jwtTokenProvider.getUserId(token);
+                var principal = principalDetailsService.loadUserById(userId);
+                var authentication = new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
+            chain.doFilter(request, response);
+        } finally {
+            SecurityContextHolder.clearContext();
         }
-        chain.doFilter(request, response);
+    }
+
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
+    @Override
+    protected boolean shouldNotFilterErrorDispatch() {
+        return false;
     }
 
     private String resolveToken(HttpServletRequest request) {

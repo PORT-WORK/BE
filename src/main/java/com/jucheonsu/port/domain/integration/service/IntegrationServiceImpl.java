@@ -182,11 +182,6 @@ public class IntegrationServiceImpl implements IntegrationService {
 
     private IntegrationSourceItemResponse buildGithubSource(String token, Map<String, Object> repo) {
         String fullName = Objects.toString(repo.get("full_name"), Objects.toString(repo.get("name"), ""));
-        Map<String, Object> languages = githubApi(token, "/repos/" + fullName + "/languages");
-        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=open&per_page=5");
-        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=open&per_page=5");
-        List<Map<String, Object>> releases = githubApiList(token, "/repos/" + fullName + "/releases?per_page=5");
-        Map<String, Object> readme = githubApi(token, "/repos/" + fullName + "/readme");
 
         List<String> tags = new ArrayList<>();
         Object repoTopics = repo.get("topics");
@@ -201,20 +196,15 @@ public class IntegrationServiceImpl implements IntegrationService {
         if (repo.get("language") != null) {
             tags.add(Objects.toString(repo.get("language"), ""));
         }
-        if (languages != null) {
-            tags.addAll(languages.keySet().stream().limit(3).toList());
+        String visibility = Objects.toString(repo.get("visibility"), "");
+        if (StringUtils.hasText(visibility)) {
+            tags.add(visibility);
         }
 
         Map<String, Object> raw = new LinkedHashMap<>();
         raw.put("repo", repo);
-        raw.put("languages", languages);
-        raw.put("issues", issues);
-        raw.put("pulls", pulls);
-        raw.put("releases", releases);
-        raw.put("readme", readme);
 
-        String readmeExcerpt = decodeGithubReadmeExcerpt(readme);
-        String summary = buildGithubSummary(repo, readmeExcerpt, languages, issues, pulls, releases);
+        String summary = buildGithubSummary(repo);
         return new IntegrationSourceItemResponse(
                 ProviderType.GITHUB,
                 fullName,
@@ -229,28 +219,17 @@ public class IntegrationServiceImpl implements IntegrationService {
         );
     }
 
-    private String buildGithubSummary(Map<String, Object> repo, String readmeExcerpt, Map<String, Object> languages, List<Map<String, Object>> issues, List<Map<String, Object>> pulls, List<Map<String, Object>> releases) {
+    private String buildGithubSummary(Map<String, Object> repo) {
         List<String> parts = new ArrayList<>();
         String description = Objects.toString(repo.get("description"), "");
         if (StringUtils.hasText(description)) parts.add(description);
-        if (languages != null && !languages.isEmpty()) parts.add("Languages: " + String.join(", ", languages.keySet().stream().limit(3).toList()));
-        if (issues != null && !issues.isEmpty()) parts.add("Issues: " + issues.size());
-        if (pulls != null && !pulls.isEmpty()) parts.add("PRs: " + pulls.size());
-        if (releases != null && !releases.isEmpty()) parts.add("Releases: " + releases.size());
-        if (StringUtils.hasText(readmeExcerpt)) parts.add(readmeExcerpt);
-        return String.join(" • ", parts);
-    }
-
-    private String decodeGithubReadmeExcerpt(Map<String, Object> readme) {
-        if (readme == null || readme.isEmpty()) return "";
-        String encoded = Objects.toString(readme.get("content"), "");
-        if (!StringUtils.hasText(encoded)) return "";
-        try {
-            String decoded = new String(Base64.getDecoder().decode(encoded.replaceAll("\\s", "")));
-            return decoded.length() > 180 ? decoded.substring(0, 180) + "..." : decoded;
-        } catch (Exception ignored) {
-            return "";
-        }
+        String language = Objects.toString(repo.get("language"), "");
+        if (StringUtils.hasText(language)) parts.add("Language: " + language);
+        String stars = Objects.toString(repo.get("stargazers_count"), "");
+        if (StringUtils.hasText(stars)) parts.add("Stars: " + stars);
+        String updated = Objects.toString(repo.get("updated_at"), "");
+        if (StringUtils.hasText(updated)) parts.add("Updated: " + updated);
+        return String.join(" · ", parts);
     }
 
     private List<IntegrationSourceItemResponse> listNotionSources(OAuthConnection connection) {
@@ -333,16 +312,41 @@ public class IntegrationServiceImpl implements IntegrationService {
         String workspaceUrl = connection.getWorkspaceUrl();
         String fileKey = extractFigmaFileKey(workspaceUrl);
         if (!StringUtils.hasText(fileKey)) {
-            return List.of();
+            return List.of(buildFigmaFallbackSource(workspaceUrl, "figma-workspace"));
         }
-        Map<String, Object> file = figmaFile(connection.getAccessToken(), fileKey);
-        Object document = file.get("document");
-        if (!(document instanceof Map<?, ?> root)) {
-            return List.of();
+        try {
+            Map<String, Object> file = figmaFile(connection.getAccessToken(), fileKey);
+            Object document = file.get("document");
+            if (!(document instanceof Map<?, ?> root)) {
+                return List.of(buildFigmaFallbackSource(workspaceUrl, fileKey));
+            }
+            List<IntegrationSourceItemResponse> items = new ArrayList<>();
+            collectFigmaNodes(fileKey, workspaceUrl, file, root, "FILE", 0, items);
+            if (items.isEmpty()) {
+                items.add(buildFigmaFallbackSource(workspaceUrl, fileKey));
+            }
+            return items;
+        } catch (Exception ex) {
+            return List.of(buildFigmaFallbackSource(workspaceUrl, fileKey));
         }
-        List<IntegrationSourceItemResponse> items = new ArrayList<>();
-        collectFigmaNodes(fileKey, workspaceUrl, file, root, "FILE", 0, items);
-        return items;
+    }
+
+    private IntegrationSourceItemResponse buildFigmaFallbackSource(String workspaceUrl, String fileKey) {
+        Map<String, Object> raw = new LinkedHashMap<>();
+        raw.put("workspaceUrl", workspaceUrl);
+        raw.put("fileKey", fileKey);
+        return new IntegrationSourceItemResponse(
+                ProviderType.FIGMA,
+                StringUtils.hasText(fileKey) ? fileKey : "figma-workspace",
+                "FILE",
+                StringUtils.hasText(fileKey) ? "Figma file " + fileKey : "Figma workspace",
+                "Figma",
+                StringUtils.hasText(workspaceUrl) ? "Connected Figma workspace: " + workspaceUrl : "Connected Figma workspace",
+                workspaceUrl,
+                null,
+                List.of("figma", "workspace"),
+                raw
+        );
     }
 
     private Map<String, Object> figmaFile(String token, String fileKey) {

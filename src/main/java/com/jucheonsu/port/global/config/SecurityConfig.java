@@ -18,6 +18,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 
 @Configuration
 @EnableWebSecurity
@@ -53,6 +54,7 @@ public class SecurityConfig {
                         .failureHandler(oAuth2FailureHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
@@ -61,6 +63,8 @@ public class SecurityConfig {
                                 "/login/oauth2/**",
                                 "/oauth2/**"
                         ).permitAll()
+                        .requestMatchers("/api/realtime/**").authenticated()
+                        .requestMatchers("/api/integrations/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/portfolios/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/users/*").permitAll()
                         .anyRequest().authenticated()
