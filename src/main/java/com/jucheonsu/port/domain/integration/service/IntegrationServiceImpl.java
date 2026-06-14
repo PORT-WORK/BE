@@ -136,6 +136,7 @@ public class IntegrationServiceImpl implements IntegrationService {
         OAuthConnection connection = connectionRepository.findByUserIdAndProvider(userId, provider)
                 .orElseThrow(() -> new CustomException(ErrorCode.OAUTH_CONNECTION_NOT_FOUND));
         connection.update(connection.getAccessToken(), connection.getRefreshToken(), sourceUrl.trim(), connection.getExpiresAt());
+        connectionRepository.save(connection);
         return listFigmaSources(connection);
     }
 
@@ -228,9 +229,10 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     private List<IntegrationSourceItemResponse> buildGithubIssueSources(String token, String fullName) {
-        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=3");
+        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=10");
         return issues.stream()
                 .filter(issue -> !issue.containsKey("pull_request"))
+                .limit(3)
                 .map(issue -> {
                     String number = Objects.toString(issue.get("number"), "");
                     Map<String, Object> raw = new LinkedHashMap<>();
@@ -254,6 +256,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     private List<IntegrationSourceItemResponse> buildGithubPullRequestSources(String token, String fullName) {
         List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=all&per_page=3");
         return pulls.stream()
+                .limit(3)
                 .map(pr -> {
                     String number = Objects.toString(pr.get("number"), "");
                     Map<String, Object> raw = new LinkedHashMap<>();
@@ -277,6 +280,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     private List<IntegrationSourceItemResponse> buildGithubReleaseSources(String token, String fullName) {
         List<Map<String, Object>> releases = githubApiList(token, "/repos/" + fullName + "/releases?per_page=3");
         return releases.stream()
+                .limit(3)
                 .map(release -> {
                     String tag = Objects.toString(release.get("tag_name"), "");
                     Map<String, Object> raw = new LinkedHashMap<>();
