@@ -10,6 +10,7 @@ import com.jucheonsu.port.domain.integration.dto.response.IntegrationSourceItemR
 import com.jucheonsu.port.domain.integration.service.IntegrationService;
 import com.jucheonsu.port.domain.portfolio.entity.Portfolio;
 import com.jucheonsu.port.domain.portfolio.service.PortfolioPptxService;
+import com.jucheonsu.port.domain.project.dto.PortfolioSource;
 import com.jucheonsu.port.domain.project.dto.request.ProjectWritingSaveRequest;
 import com.jucheonsu.port.domain.project.dto.request.ProjectWritingSelectionRequest;
 import com.jucheonsu.port.domain.project.dto.response.ProjectWritingSessionResponse;
@@ -45,6 +46,7 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
     private final IntegrationService integrationService;
     private final PortfolioPptxService portfolioPptxService;
     private final ObjectMapper objectMapper;
+    private final SourceNormalizer sourceNormalizer;
 
     @Override
     @Transactional
@@ -61,9 +63,10 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
         }
 
         ProjectWritingSession session = getOrCreateSession(project);
-        boolean externalMode = StringUtils.hasText(request.provider()) && request.sourceIds() != null && !request.sourceIds().isEmpty();
+        boolean hasMultiExternal = request.sourceSelections() != null && !request.sourceSelections().isEmpty();
+        boolean externalMode = hasMultiExternal || (StringUtils.hasText(request.provider()) && request.sourceIds() != null && !request.sourceIds().isEmpty());
         Map<String, Object> snapshot = externalMode
-                ? buildExternalSnapshot(project.getPortfolio(), request.provider(), request.sourceIds())
+                ? (hasMultiExternal ? buildExternalSnapshot(project.getPortfolio(), request.sourceSelections()) : buildExternalSnapshot(project.getPortfolio(), request.provider(), request.sourceIds()))
                 : buildSnapshot(project.getPortfolio(), request.projectIds(), request.documentIds());
         session.markSelected(
                 project.getRole(),
@@ -200,30 +203,46 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
     }
 
     private Map<String, Object> buildExternalSnapshot(Portfolio portfolio, String provider, List<String> sourceIds) {
+        return buildExternalSnapshot(portfolio, List.of(new ProjectWritingSelectionRequest.SourceSelection(provider, sourceIds)));
+    }
+
+    private Map<String, Object> buildExternalSnapshot(Portfolio portfolio, List<ProjectWritingSelectionRequest.SourceSelection> selections) {
         Long userId = portfolio.getUser().getId();
-        ProviderType providerType = parseProvider(provider);
-        List<IntegrationSourceItemResponse> sources = integrationService.listSources(userId, providerType);
-        List<String> targetIds = normalizeSourceIds(sourceIds);
-        List<Map<String, Object>> selected = sources.stream()
-                .filter(source -> targetIds.contains(source.resourceId()))
-                .map(source -> {
-                    Map<String, Object> map = new LinkedHashMap<>();
-                    map.put("provider", source.provider().name());
-                    map.put("resourceId", source.resourceId());
-                    map.put("kind", source.kind());
-                    map.put("title", source.title());
-                    map.put("subtitle", source.subtitle());
-                    map.put("summary", source.summary());
-                    map.put("url", source.url());
-                    map.put("imageUrl", source.imageUrl());
-                    map.put("tags", source.tags());
-                    map.put("raw", source.raw());
-                    return map;
-                })
-                .toList();
+        List<String> providers = new ArrayList<>();
+        List<Map<String, Object>> selected = new ArrayList<>();
+
+        for (ProjectWritingSelectionRequest.SourceSelection selection : selections) {
+            if (selection == null || !StringUtils.hasText(selection.provider())) {
+                continue;
+            }
+            ProviderType providerType = parseProvider(selection.provider());
+            providers.add(providerType.name());
+            List<String> targetIds = normalizeSourceIds(selection.sourceIds());
+            if (targetIds.isEmpty()) {
+                continue;
+            }
+            List<IntegrationSourceItemResponse> sources = integrationService.listSources(userId, providerType);
+            sources.stream()
+                    .filter(source -> targetIds.contains(source.resourceId()))
+                    .map(source -> {
+                        Map<String, Object> map = new LinkedHashMap<>();
+                        map.put("provider", source.provider().name());
+                        map.put("resourceId", source.resourceId());
+                        map.put("kind", source.kind());
+                        map.put("title", source.title());
+                        map.put("subtitle", source.subtitle());
+                        map.put("summary", source.summary());
+                        map.put("url", source.url());
+                        map.put("imageUrl", source.imageUrl());
+                        map.put("tags", source.tags());
+                        map.put("raw", source.raw());
+                        return map;
+                    })
+                    .forEach(selected::add);
+        }
 
         Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("provider", providerType.name());
+        snapshot.put("provider", String.join(",", providers));
         snapshot.put("portfolioId", portfolio.getId());
         snapshot.put("portfolioTitle", portfolio.getTitle());
         snapshot.put("sources", selected);
@@ -237,6 +256,15 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
         payload.put("documentIds", normalizeIds(request.documentIds()));
         payload.put("provider", request.provider());
         payload.put("sourceIds", normalizeSourceIds(request.sourceIds()));
+        payload.put("sourceSelections", request.sourceSelections() == null ? List.of() : request.sourceSelections().stream()
+                .filter(Objects::nonNull)
+                .map(selection -> {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("provider", selection.provider());
+                    map.put("sourceIds", normalizeSourceIds(selection.sourceIds()));
+                    return map;
+                })
+                .toList());
         return payload;
     }
 
@@ -277,25 +305,25 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
                 if (!(value instanceof Map<?, ?> map)) {
                     continue;
                 }
-                String title = Objects.toString(map.get("title"), "");
-                String kind = Objects.toString(map.get("kind"), "");
-                String summary = Objects.toString(map.get("summary"), "");
-                String url = Objects.toString(map.get("url"), "");
-                List<String> tags = map.get("tags") instanceof List<?> tagList
-                        ? tagList.stream().map(item -> Objects.toString(item, "")).filter(item -> StringUtils.hasText(item)).toList()
-                        : List.of();
-                lines.add("- " + firstNonBlank(title, kind));
-                if (StringUtils.hasText(kind)) {
-                    lines.add("  Kind: " + kind);
+                PortfolioSource source = sourceNormalizer.normalize(map);
+                lines.add("- " + source.title());
+                if (StringUtils.hasText(source.provider())) {
+                    lines.add("  Provider: " + source.provider());
                 }
-                if (StringUtils.hasText(summary)) {
-                    lines.add("  Summary: " + summary);
+                if (StringUtils.hasText(source.description())) {
+                    lines.add("  Description: " + source.description());
                 }
-                if (!tags.isEmpty()) {
-                    lines.add("  Tags: " + String.join(", ", tags));
+                if (!source.technologies().isEmpty()) {
+                    lines.add("  Technologies: " + String.join(", ", source.technologies()));
                 }
-                if (StringUtils.hasText(url)) {
-                    lines.add("  Url: " + url);
+                if (!source.features().isEmpty()) {
+                    lines.add("  Features: " + String.join(", ", source.features()));
+                }
+                if (!source.troubleshooting().isEmpty()) {
+                    lines.add("  Troubleshooting: " + String.join(", ", source.troubleshooting()));
+                }
+                if (!source.links().isEmpty()) {
+                    lines.add("  Links: " + String.join(", ", source.links()));
                 }
             }
             return String.join("\n", lines);

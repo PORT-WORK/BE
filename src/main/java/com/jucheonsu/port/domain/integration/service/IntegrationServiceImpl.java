@@ -431,7 +431,7 @@ public class IntegrationServiceImpl implements IntegrationService {
                 return List.of(buildFigmaFallbackSource(workspaceUrl, fileKey));
             }
             List<IntegrationSourceItemResponse> items = new ArrayList<>();
-            collectFigmaNodes(fileKey, workspaceUrl, file, root, "FILE", 0, items);
+            collectFigmaNodes(connection.getAccessToken(), fileKey, workspaceUrl, file, root, "FILE", 0, items);
             if (items.isEmpty()) {
                 items.add(buildFigmaFallbackSource(workspaceUrl, fileKey));
             }
@@ -469,7 +469,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     }
 
     @SuppressWarnings("unchecked")
-    private void collectFigmaNodes(String fileKey, String workspaceUrl, Map<String, Object> file, Map<?, ?> node, String path, int depth, List<IntegrationSourceItemResponse> items) {
+    private void collectFigmaNodes(String token, String fileKey, String workspaceUrl, Map<String, Object> file, Map<?, ?> node, String path, int depth, List<IntegrationSourceItemResponse> items) {
         if (items.size() >= 30) {
             return;
         }
@@ -496,7 +496,7 @@ public class IntegrationServiceImpl implements IntegrationService {
                     currentPath,
                     childCount + " child nodes",
                     buildFigmaUrl(workspaceUrl, id),
-                    null,
+                    figmaImageUrl(token, fileKey, id),
                     List.of(type.isBlank() ? "node" : type.toLowerCase(Locale.ROOT)),
                     raw
             ));
@@ -509,9 +509,35 @@ public class IntegrationServiceImpl implements IntegrationService {
                     break;
                 }
                 if (child instanceof Map<?, ?> childMap) {
-                    collectFigmaNodes(fileKey, workspaceUrl, file, childMap, currentPath, depth + 1, items);
+                    collectFigmaNodes(token, fileKey, workspaceUrl, file, childMap, currentPath, depth + 1, items);
                 }
             }
+        }
+    }
+
+    private String figmaImageUrl(String token, String fileKey, String nodeId) {
+        if (!StringUtils.hasText(nodeId)) {
+            return null;
+        }
+        try {
+            Map<String, Object> body = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .scheme("https")
+                            .host("api.figma.com")
+                            .path("/v1/images/{fileKey}")
+                            .queryParam("ids", nodeId)
+                            .build(fileKey))
+                    .header("Authorization", "Bearer " + token)
+                    .retrieve()
+                    .body(Map.class);
+            if (body == null || !(body.get("images") instanceof Map<?, ?> images)) {
+                return null;
+            }
+            Object image = images.get(nodeId);
+            return image == null ? null : image.toString();
+        } catch (RestClientException e) {
+            log.warn("Figma image lookup failed: fileKey={} nodeId={} message={}", fileKey, nodeId, e.getMessage());
+            return null;
         }
     }
 
@@ -566,14 +592,14 @@ public class IntegrationServiceImpl implements IntegrationService {
         try {
             Map<String, Object> body = restClient.post()
                     .uri("https://github.com/login/oauth/access_token")
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .accept(MediaType.APPLICATION_JSON)
-                    .body(Map.of(
+                    .body(formData(Map.of(
                             "client_id", githubClientId,
                             "client_secret", githubClientSecret,
                             "code", code,
                             "redirect_uri", githubRedirectUri
-                    ))
+                    )))
                     .retrieve()
                     .body(Map.class);
 
@@ -633,7 +659,7 @@ public class IntegrationServiceImpl implements IntegrationService {
             log.info("code={}", code);
 
             Map<String, Object> body = restClient.post()
-                    .uri("https://api.figma.com/v1/oauth/token")
+                    .uri("https://www.figma.com/api/oauth/token")
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .header(
                             "Authorization",
@@ -695,9 +721,9 @@ public class IntegrationServiceImpl implements IntegrationService {
                 Objects.toString(user.get("bio"), null),
                 Objects.toString(user.get("html_url"), null),
                 repos.isEmpty() ? "Recent repositories" : "Recent repositories: " + String.join(", ", repos.stream()
-                        .map(repo -> Objects.toString(repo.get("name"), ""))
-                        .filter(s -> !s.isBlank())
-                        .toList()),
+                                                                                                      .map(repo -> Objects.toString(repo.get("name"), ""))
+                                                                                                      .filter(s -> !s.isBlank())
+                                                                                                      .toList()),
                 Objects.toString(user.get("avatar_url"), null),
                 List.of("repository", "profile", "github"),
                 Map.of("profile", user, "repos", repos)

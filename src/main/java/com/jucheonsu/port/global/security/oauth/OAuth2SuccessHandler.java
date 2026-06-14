@@ -9,6 +9,7 @@ import com.jucheonsu.port.infra.redis.RefreshTokenRedisRepository;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
@@ -21,6 +22,7 @@ import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
 
     private final UserRepository userRepository;
@@ -42,26 +44,33 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication)
             throws IOException, ServletException {
-        OAuth2User oauthUser = (OAuth2User) authentication.getPrincipal();
-        String email = extractEmail(oauthUser);
-        String name = extractName(oauthUser);
-        String profileImageUrl = extractProfileImage(oauthUser);
+        try {
+            OAuth2User oauthUser = (OAuth2User) authentication.getPrincipal();
+            String email = extractEmail(oauthUser);
+            String name = extractName(oauthUser);
+            String profileImageUrl = extractProfileImage(oauthUser);
 
-        User user = userRepository.findByEmailAndDeletedAtIsNull(email)
-                .orElseGet(() -> userRepository.save(User.builder()
-                        .email(email)
-                        .name(name)
-                        .profileImageUrl(profileImageUrl)
-                        .language(LanguageType.ko)
-                        .build()));
+            User user = userRepository.findByEmailAndDeletedAtIsNull(email)
+                    .orElseGet(() -> userRepository.save(User.builder()
+                            .email(email)
+                            .name(name)
+                            .profileImageUrl(profileImageUrl)
+                            .language(LanguageType.ko)
+                            .build()));
 
-        String accessToken = jwtTokenProvider.createAccessToken(user.getId(), user.getEmail());
-        String refreshToken = jwtTokenProvider.createRefreshToken(user.getId(), user.getEmail());
-        refreshTokenRedisRepository.save(user.getId(), refreshToken);
+            String accessToken = jwtTokenProvider.createAccessToken(user.getId(), user.getEmail());
+            String refreshToken = jwtTokenProvider.createRefreshToken(user.getId(), user.getEmail());
+            refreshTokenRedisRepository.save(user.getId(), refreshToken);
 
-        CookieUtil.addHttpOnlyCookie(response, "ACCESS_TOKEN", accessToken, accessExpirationMs / 1000, cookieSecure);
-        CookieUtil.addHttpOnlyCookie(response, "REFRESH_TOKEN", refreshToken, refreshExpirationMs / 1000, cookieSecure);
-        response.sendRedirect(frontendUrl + "/oauth/success");
+            CookieUtil.addHttpOnlyCookie(response, "ACCESS_TOKEN", accessToken, accessExpirationMs / 1000, cookieSecure);
+            CookieUtil.addHttpOnlyCookie(response, "REFRESH_TOKEN", refreshToken, refreshExpirationMs / 1000, cookieSecure);
+            response.sendRedirect(frontendUrl + "/oauth/success");
+        } catch (Exception e) {
+            log.warn("OAuth success handling failed: {}", e.getMessage(), e);
+            if (!response.isCommitted()) {
+                response.sendRedirect(frontendUrl + "/login?error=oauth");
+            }
+        }
     }
 
     private String extractEmail(OAuth2User oauthUser) {

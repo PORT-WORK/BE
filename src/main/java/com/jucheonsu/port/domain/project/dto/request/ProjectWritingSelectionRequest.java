@@ -9,6 +9,12 @@ public record ProjectWritingSelectionRequest(
         List<Long> projectIds,
         List<Long> documentIds,
         String provider,
-        List<String> sourceIds
+        List<String> sourceIds,
+        List<SourceSelection> sourceSelections
 ) {
+    public record SourceSelection(
+            String provider,
+            List<String> sourceIds
+    ) {
+    }
 }
