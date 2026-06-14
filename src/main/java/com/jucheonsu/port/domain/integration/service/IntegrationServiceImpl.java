@@ -175,8 +175,109 @@ public class IntegrationServiceImpl implements IntegrationService {
 
     private List<IntegrationSourceItemResponse> listGithubSources(OAuthConnection connection) {
         List<Map<String, Object>> repos = githubApiList(connection.getAccessToken(), "/user/repos?sort=updated&per_page=20&affiliation=owner,collaborator,organization_member");
-        return repos.stream()
-                .map(repo -> buildGithubSource(connection.getAccessToken(), repo))
+        List<IntegrationSourceItemResponse> items = new ArrayList<>();
+        for (Map<String, Object> repo : repos) {
+            String fullName = Objects.toString(repo.get("full_name"), Objects.toString(repo.get("name"), ""));
+            if (!StringUtils.hasText(fullName)) {
+                continue;
+            }
+            items.add(buildGithubSource(connection.getAccessToken(), repo));
+            items.addAll(buildGithubReadmeSources(connection.getAccessToken(), fullName));
+            items.addAll(buildGithubIssueSources(connection.getAccessToken(), fullName));
+            items.addAll(buildGithubPullRequestSources(connection.getAccessToken(), fullName));
+            items.addAll(buildGithubReleaseSources(connection.getAccessToken(), fullName));
+        }
+        return items.stream().limit(40).toList();
+    }
+
+    private List<IntegrationSourceItemResponse> buildGithubReadmeSources(String token, String fullName) {
+        Map<String, Object> readme = githubApi(token, "/repos/" + fullName + "/readme");
+        if (readme.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Object> raw = new LinkedHashMap<>();
+        raw.put("readme", readme);
+        return List.of(new IntegrationSourceItemResponse(
+                ProviderType.GITHUB,
+                fullName + ":README",
+                "README",
+                fullName + " README",
+                "README",
+                StringUtils.hasText(Objects.toString(readme.get("download_url"), "")) ? "Repository README available" : "README document",
+                Objects.toString(readme.get("html_url"), Objects.toString(readme.get("url"), null)),
+                null,
+                List.of("readme", "markdown", "github"),
+                raw
+        ));
+    }
+
+    private List<IntegrationSourceItemResponse> buildGithubIssueSources(String token, String fullName) {
+        List<Map<String, Object>> issues = githubApiList(token, "/repos/" + fullName + "/issues?state=all&per_page=3");
+        return issues.stream()
+                .filter(issue -> !issue.containsKey("pull_request"))
+                .map(issue -> {
+                    String number = Objects.toString(issue.get("number"), "");
+                    Map<String, Object> raw = new LinkedHashMap<>();
+                    raw.put("issue", issue);
+                    return new IntegrationSourceItemResponse(
+                            ProviderType.GITHUB,
+                            fullName + ":ISSUE:" + number,
+                            "ISSUE",
+                            firstNonBlank(Objects.toString(issue.get("title"), ""), "Issue " + number),
+                            fullName,
+                            buildGithubSummary(issue),
+                            Objects.toString(issue.get("html_url"), null),
+                            null,
+                            List.of("issue", Objects.toString(issue.get("state"), "open"), "github"),
+                            raw
+                    );
+                })
+                .toList();
+    }
+
+    private List<IntegrationSourceItemResponse> buildGithubPullRequestSources(String token, String fullName) {
+        List<Map<String, Object>> pulls = githubApiList(token, "/repos/" + fullName + "/pulls?state=all&per_page=3");
+        return pulls.stream()
+                .map(pr -> {
+                    String number = Objects.toString(pr.get("number"), "");
+                    Map<String, Object> raw = new LinkedHashMap<>();
+                    raw.put("pullRequest", pr);
+                    return new IntegrationSourceItemResponse(
+                            ProviderType.GITHUB,
+                            fullName + ":PR:" + number,
+                            "PR",
+                            firstNonBlank(Objects.toString(pr.get("title"), ""), "Pull request " + number),
+                            fullName,
+                            buildGithubSummary(pr),
+                            Objects.toString(pr.get("html_url"), null),
+                            null,
+                            List.of("pr", "pull-request", "github"),
+                            raw
+                    );
+                })
+                .toList();
+    }
+
+    private List<IntegrationSourceItemResponse> buildGithubReleaseSources(String token, String fullName) {
+        List<Map<String, Object>> releases = githubApiList(token, "/repos/" + fullName + "/releases?per_page=3");
+        return releases.stream()
+                .map(release -> {
+                    String tag = Objects.toString(release.get("tag_name"), "");
+                    Map<String, Object> raw = new LinkedHashMap<>();
+                    raw.put("release", release);
+                    return new IntegrationSourceItemResponse(
+                            ProviderType.GITHUB,
+                            fullName + ":RELEASE:" + tag,
+                            "RELEASE",
+                            firstNonBlank(Objects.toString(release.get("name"), ""), tag, "Release"),
+                            fullName,
+                            buildGithubSummary(release),
+                            Objects.toString(release.get("html_url"), null),
+                            null,
+                            List.of("release", "github"),
+                            raw
+                    );
+                })
                 .toList();
     }
 
@@ -230,6 +331,15 @@ public class IntegrationServiceImpl implements IntegrationService {
         String updated = Objects.toString(repo.get("updated_at"), "");
         if (StringUtils.hasText(updated)) parts.add("Updated: " + updated);
         return String.join(" · ", parts);
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private List<IntegrationSourceItemResponse> listNotionSources(OAuthConnection connection) {
@@ -517,15 +627,22 @@ public class IntegrationServiceImpl implements IntegrationService {
 
     private TokenBundle exchangeFigma(String code) {
         try {
+            log.info("===== FIGMA TOKEN EXCHANGE =====");
+            log.info("redirectUri={}", figmaRedirectUri);
+            log.info("clientId={}", figmaClientId);
+            log.info("code={}", code);
+
             Map<String, Object> body = restClient.post()
-                    .uri("https://www.figma.com/oauth/token")
+                    .uri("https://api.figma.com/v1/oauth/token")
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .header(
+                            "Authorization",
+                            basicAuth(figmaClientId, figmaClientSecret)
+                    )
                     .body(formData(Map.of(
                             "grant_type", "authorization_code",
                             "code", code,
-                            "redirect_uri", figmaRedirectUri,
-                            "client_id", figmaClientId,
-                            "client_secret", figmaClientSecret
+                            "redirect_uri", figmaRedirectUri
                     )))
                     .retrieve()
                     .body(Map.class);
@@ -534,15 +651,37 @@ public class IntegrationServiceImpl implements IntegrationService {
                 log.warn("Figma token exchange failed: {}", body);
                 throw new CustomException(ErrorCode.INVALID_REQUEST);
             }
+
             String accessToken = Objects.toString(body.get("access_token"), null);
             String refreshToken = Objects.toString(body.get("refresh_token"), null);
-            Long expiresIn = body.get("expires_in") == null ? null : Long.valueOf(body.get("expires_in").toString());
-            return new TokenBundle(accessToken, refreshToken, null, expiresIn == null ? null : LocalDateTime.now().plusSeconds(expiresIn));
+
+            Long expiresIn = body.get("expires_in") == null
+                    ? null
+                    : Long.valueOf(body.get("expires_in").toString());
+
+            return new TokenBundle(
+                    accessToken,
+                    refreshToken,
+                    null,
+                    expiresIn == null
+                            ? null
+                            : LocalDateTime.now().plusSeconds(expiresIn)
+            );
+
         } catch (RestClientResponseException e) {
-            log.warn("Figma token exchange error: status={} body={}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            log.warn(
+                    "Figma token exchange error: status={} body={}",
+                    e.getStatusCode().value(),
+                    e.getResponseBodyAsString()
+            );
             throw new CustomException(ErrorCode.INVALID_REQUEST);
+
         } catch (RestClientException e) {
-            log.warn("Figma token exchange transport error: {}", e.getMessage(), e);
+            log.warn(
+                    "Figma token exchange transport error: {}",
+                    e.getMessage(),
+                    e
+            );
             throw new CustomException(ErrorCode.INVALID_REQUEST);
         }
     }
