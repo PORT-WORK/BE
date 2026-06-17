@@ -445,9 +445,12 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
 
     private ProjectWritingSessionResponse toResponse(ProjectWritingSession session) {
         Map<String, Object> selectedSources = readObjectMap(session.getSelectedSourcesJson());
+        Long portfolioId = session.getProject().getPortfolio() != null
+                ? session.getProject().getPortfolio().getId()
+                : 0L;
         return new ProjectWritingSessionResponse(
                 session.getProject().getId(),
-                session.getProject().getPortfolio().getId(),
+                portfolioId,
                 session.getProject().getName(),
                 session.getRole(),
                 session.getStatus().name(),
