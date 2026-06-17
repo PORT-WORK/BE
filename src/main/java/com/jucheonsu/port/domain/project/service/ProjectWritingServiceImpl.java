@@ -83,7 +83,9 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
         session.saveDraft(
                 request.progress(),
                 writeJson(request.sectionDrafts() == null ? Map.of() : request.sectionDrafts()),
-                writeJson(request.sectionStatuses() == null ? Map.of() : request.sectionStatuses())
+                writeJson(request.sectionStatuses() == null ? Map.of() : request.sectionStatuses()),
+                request.documentText(),
+                request.reviewedDocument()
         );
         return toResponse(session);
     }
@@ -142,7 +144,7 @@ public class ProjectWritingServiceImpl implements ProjectWritingService {
                 ? session.getPresentationJson()
                 : portfolioPptxService.buildLayoutJson(portfolioId, sourceText);
         session.markPptCreated(layoutJson);
-        return portfolioPptxService.renderLayoutAndStore(portfolioId, layoutJson, "project-" + projectId + ".pptx");
+        return portfolioPptxService.renderLayoutAndStore(portfolioId, layoutJson, "project-" + projectId + ".pdf");
     }
 
     private Project getProject(Long projectId) {

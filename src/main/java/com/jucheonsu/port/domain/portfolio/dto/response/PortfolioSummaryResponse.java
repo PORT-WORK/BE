@@ -10,6 +10,7 @@ public record PortfolioSummaryResponse(
         String thumbnailUrl,
         String summary,
         List<String> skills,
+        String pdfUrl,
         String pptxUrl,
         Boolean isPublic,
         Integer viewCount,

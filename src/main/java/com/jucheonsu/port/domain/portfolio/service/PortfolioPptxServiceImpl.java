@@ -38,8 +38,9 @@ public class PortfolioPptxServiceImpl implements PortfolioPptxService {
         Portfolio portfolio = portfolioRepository.findByIdAndDeletedAtIsNull(portfolioId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PORTFOLIO_NOT_FOUND));
         byte[] bytes = pptExportService.exportPortfolio(portfolioId, layoutJson);
-        String actualFileName = StringUtils.hasText(fileName) ? fileName : "portfolio-" + portfolioId + ".pptx";
-        String url = cloudinaryUploader.upload(bytes, actualFileName, "pptx").url();
+        String actualFileName = StringUtils.hasText(fileName) ? fileName : "portfolio-" + portfolioId + ".pdf";
+        String url = cloudinaryUploader.upload(bytes, actualFileName, "pdf").url();
+        portfolio.updatePdfUrl(url);
         portfolio.updatePptxUrl(url);
         return bytes;
     }

@@ -72,11 +72,23 @@ public class ProjectWritingSession extends BaseEntity {
         this.lastSavedAt = LocalDateTime.now();
     }
 
-    public void saveDraft(Integer progress, String sectionDraftJson, String sectionStatusJson) {
+    public void saveDraft(Integer progress, String sectionDraftJson, String sectionStatusJson, String documentText, String reviewedDocument) {
         this.progress = progress == null ? 0 : progress;
         this.sectionDraftJson = sectionDraftJson;
         this.sectionStatusJson = sectionStatusJson;
-        this.status = ProjectWritingStatus.WRITING;
+        if (documentText != null) {
+            this.documentText = documentText;
+        }
+        if (reviewedDocument != null) {
+            this.reviewedDocument = reviewedDocument;
+        }
+        if (reviewedDocument != null && !reviewedDocument.isBlank()) {
+            this.status = ProjectWritingStatus.REVIEWED;
+        } else if (documentText != null && !documentText.isBlank()) {
+            this.status = ProjectWritingStatus.DOCUMENT_CREATED;
+        } else {
+            this.status = ProjectWritingStatus.WRITING;
+        }
         this.lastSavedAt = LocalDateTime.now();
     }
 

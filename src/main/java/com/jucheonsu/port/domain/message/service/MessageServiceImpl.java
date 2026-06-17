@@ -2,6 +2,7 @@ package com.jucheonsu.port.domain.message.service;
 
 import com.jucheonsu.port.domain.message.converter.MessageConverter;
 import com.jucheonsu.port.domain.message.dto.request.MessageCreateRequest;
+import com.jucheonsu.port.domain.message.dto.request.MessageUpdateRequest;
 import com.jucheonsu.port.domain.message.dto.response.MessageResponse;
 import com.jucheonsu.port.domain.message.entity.Message;
 import com.jucheonsu.port.domain.message.repository.MessageRepository;
@@ -74,6 +75,21 @@ public class MessageServiceImpl implements MessageService {
                 .orElseThrow(() -> new CustomException(ErrorCode.MESSAGE_NOT_FOUND));
         message.read();
         return MessageConverter.toResponse(message);
+    }
+
+    @Transactional
+    public MessageResponse update(Long userId, Long messageId, MessageUpdateRequest request) {
+        Message message = messageRepository.findByIdAndSenderId(messageId, userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.MESSAGE_NOT_FOUND));
+        message.updateContent(request.content());
+        return MessageConverter.toResponse(message);
+    }
+
+    @Transactional
+    public void delete(Long userId, Long messageId) {
+        Message message = messageRepository.findByIdAndSenderId(messageId, userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.MESSAGE_NOT_FOUND));
+        messageRepository.delete(message);
     }
 
     private void afterCommit(Runnable action) {

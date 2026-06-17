@@ -78,5 +78,6 @@ public class PortfolioServiceImpl implements PortfolioService {
         Portfolio portfolio = portfolioRepository.findByIdAndDeletedAtIsNull(portfolioId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PORTFOLIO_NOT_FOUND));
         portfolio.updatePptxUrl(pptxUrl);
+        portfolio.updatePdfUrl(pptxUrl);
     }
 }

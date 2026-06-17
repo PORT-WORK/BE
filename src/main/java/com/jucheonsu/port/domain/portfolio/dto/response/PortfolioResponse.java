@@ -11,6 +11,7 @@ public record PortfolioResponse(
         String summary,
         List<String> skills,
         String templateId,
+        String pdfUrl,
         String pptxUrl,
         String customDomain,
         Boolean isPublic,

@@ -1,6 +1,7 @@
 package com.jucheonsu.port.domain.message.controller;
 
 import com.jucheonsu.port.domain.message.dto.request.MessageCreateRequest;
+import com.jucheonsu.port.domain.message.dto.request.MessageUpdateRequest;
 import com.jucheonsu.port.domain.message.dto.response.MessageResponse;
 import com.jucheonsu.port.domain.message.service.MessageService;
 import com.jucheonsu.port.global.response.ApiResponse;
@@ -47,5 +48,25 @@ public class MessageController {
     ) {
         Long userId = principal.getUserId();
         return ApiResponse.ok(messageService.markAsRead(userId, messageId));
+    }
+
+    @PutMapping("/{messageId}")
+    public ApiResponse<MessageResponse> update(
+            @AuthenticationPrincipal PrincipalDetails principal,
+            @PathVariable Long messageId,
+            @Valid @RequestBody MessageUpdateRequest request
+    ) {
+        Long userId = principal.getUserId();
+        return ApiResponse.ok(messageService.update(userId, messageId, request));
+    }
+
+    @DeleteMapping("/{messageId}")
+    public ApiResponse<Void> delete(
+            @AuthenticationPrincipal PrincipalDetails principal,
+            @PathVariable Long messageId
+    ) {
+        Long userId = principal.getUserId();
+        messageService.delete(userId, messageId);
+        return ApiResponse.ok();
     }
 }

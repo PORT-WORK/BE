@@ -40,6 +40,9 @@ public class Portfolio extends BaseEntity {
     @Column(length = 2000)
     private String pptxUrl;
 
+    @Column(length = 2000)
+    private String pdfUrl;
+
     @Column(length = 255)
     private String customDomain;
 
@@ -70,6 +73,10 @@ public class Portfolio extends BaseEntity {
 
     public void updatePptxUrl(String pptxUrl) {
         this.pptxUrl = pptxUrl;
+    }
+
+    public void updatePdfUrl(String pdfUrl) {
+        this.pdfUrl = pdfUrl;
     }
 
     public void increaseLikeCount() {
